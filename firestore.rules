@@ -1,0 +1,195 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // ===============================================================
+    // Assumed Data Model
+    // ===============================================================
+    //
+    // Collection: users
+    // Document ID: Firebase Auth UID
+    // Fields:
+    //   - uid: string (required) - The user's unique ID
+    //   - email: string (required) - The user's email address
+    //   - name: string (required) - Full name (max 100 chars)
+    //   - role: string (required, enum: ["customer", "admin_sales", "admin_packing", "admin_production", "super_admin"])
+    //   - approved: bool (optional) - Admin approval status
+    //   - address: string (optional) - Shipping/Contact address (max 500 chars)
+    //   - phone: string (optional) - Contact number (max 20 chars)
+    //   - city: string (optional) - City of residence (max 100 chars)
+    //   - photoURL: string (optional) - Profile picture URL
+    //
+    // Collection: products
+    // Document ID: Auto-generated
+    // Fields:
+    //   - name: string (required) - Product name (max 200 chars)
+    //   - price: number (required) - Price in IDR (must be positive)
+    //   - category: string (required) - Product category (max 50 chars)
+    //   - image: string (optional) - Image URL
+    //   - description: string (optional) - Product description (max 2000 chars)
+    //   - stock: number (required) - Available quantity (must be >= 0)
+    //
+    // Collection: orders
+    // Document ID: Auto-generated
+    // Fields:
+    //   - customerId: string (required) - UID of the customer
+    //   - customerName: string (required) - Name of the customer
+    //   - items: list (required) - List of product items (max 50 items)
+    //   - total: number (required) - Total order value
+    //   - status: string (required, enum: ["Diproses", "Produksi", "Packing", "Siap Kirim", "Dikirim", "Selesai"])
+    //   - address: string (required) - Delivery address
+    //   - phone: string (required) - Contact phone
+    //   - paymentMethod: string (optional)
+    //   - createdAt: timestamp (required) - Order timestamp
+    //
+    // ===============================================================
+
+    // Helper Functions
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function isSuperAdmin() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'super_admin') ||
+        (request.auth.token.email in ["rizqydermawanai2@gmail.com", "rizqydermawanai@gmail.com"])
+      );
+    }
+
+    function isApproved() {
+      return isAuthenticated() && (
+        (exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+         get(/databases/$(database)/documents/users/$(request.auth.uid)).data.approved != false) ||
+        isSuperAdmin()
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && isApproved() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin_sales', 'admin_packing', 'admin_production', 'super_admin']
+      );
+    }
+
+    function isSalesAdmin() {
+      return isAuthenticated() && isApproved() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin_sales', 'super_admin']
+      );
+    }
+
+    function isPackingAdmin() {
+      return isAuthenticated() && isApproved() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin_packing', 'super_admin']
+      );
+    }
+
+    function isProductionAdmin() {
+      return isAuthenticated() && isApproved() && (
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) && 
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role in ['admin_production', 'super_admin']
+      );
+    }
+
+    // Validation Helpers
+    function isValidEmail(email) {
+      return email is string && email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidUrl(url) {
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+    }
+
+    // Domain Validators
+    function isValidUser(data) {
+      return data.keys().hasAll(['uid', 'email', 'name', 'role']) &&
+             data.uid == request.auth.uid &&
+             isValidEmail(data.email) &&
+             data.name is string && data.name.size() <= 100 &&
+             data.role in ['customer', 'admin_sales', 'admin_packing', 'admin_production', 'super_admin'] &&
+             (!('approved' in data) || data.approved is bool) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
+             (!('photoURL' in data) || isValidUrl(data.photoURL));
+    }
+
+    function isValidProduct(data) {
+      return data.keys().hasAll(['name', 'price', 'category', 'stock']) &&
+             data.name is string && data.name.size() <= 200 &&
+             data.price is number && data.price > 0 &&
+             data.category is string && data.category.size() <= 50 &&
+             data.stock is number && data.stock >= 0 &&
+             (!('image' in data) || isValidUrl(data.image)) &&
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000));
+    }
+
+    function isValidOrder(data) {
+      return data.keys().hasAll(['customerId', 'items', 'total', 'status', 'address', 'createdAt']) &&
+             data.customerId is string &&
+             data.items is list && data.items.size() <= 50 &&
+             data.total is number && data.total >= 0 &&
+             data.status in ['Diproses', 'Produksi', 'Packing', 'Siap Kirim', 'Dikirim', 'Selesai'] &&
+             data.address is string && data.address.size() <= 500 &&
+             data.createdAt is timestamp;
+    }
+
+    // Rules
+    match /users/{userId} {
+      // PII Protection: Only owner or Super Admin can read full profile
+      allow read: if isOwner(userId) || isSuperAdmin();
+      
+      allow create: if isAuthenticated() && request.auth.uid == userId && 
+                    isValidUser(request.resource.data) &&
+                    (
+                      request.resource.data.role == 'customer' || 
+                      (request.resource.data.role in ['admin_sales', 'admin_packing', 'admin_production'] && request.resource.data.approved == false) ||
+                      isSuperAdmin()
+                    );
+                    
+      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+                    (
+                      // Owner can update their profile but NOT their role or approval status
+                      (isOwner(userId) && 
+                       request.resource.data.role == resource.data.role && 
+                       (!('approved' in request.resource.data) || request.resource.data.approved == resource.data.approved)) ||
+                      // Super Admin can update anything
+                      isSuperAdmin()
+                    );
+                    
+      allow delete: if isSuperAdmin();
+    }
+
+    match /products/{productId} {
+      allow read: if true;
+      allow create: if isSalesAdmin() && isValidProduct(request.resource.data);
+      allow update: if isSalesAdmin() && isValidProduct(request.resource.data);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /orders/{orderId} {
+      allow read: if isAuthenticated() && (request.auth.uid == resource.data.customerId || isAdmin());
+      
+      allow create: if isAuthenticated() && 
+                    request.auth.uid == request.resource.data.customerId &&
+                    isValidOrder(request.resource.data);
+                    
+      allow update: if isAuthenticated() && isValidOrder(request.resource.data) && (
+        // Customer can only update if status is unchanged (e.g. updating address before processing)
+        (request.auth.uid == resource.data.customerId && request.resource.data.status == resource.data.status) ||
+        // Role-based status updates
+        (isSalesAdmin() && request.resource.data.status in ['Diproses', 'Produksi', 'Selesai']) ||
+        (isProductionAdmin() && request.resource.data.status in ['Produksi', 'Packing']) ||
+        (isPackingAdmin() && request.resource.data.status in ['Packing', 'Siap Kirim', 'Dikirim']) ||
+        isSuperAdmin()
+      );
+      
+      allow delete: if isSuperAdmin();
+    }
+  }
+}
