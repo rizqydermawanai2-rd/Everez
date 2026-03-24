@@ -6,7 +6,7 @@
 import { useState, useEffect } from 'react';
 import { auth, db } from './firebase';
 import { onAuthStateChanged, signOut } from 'firebase/auth';
-import { doc, getDoc, setDoc, getDocFromServer, updateDoc, onSnapshot } from 'firebase/firestore';
+import { doc, getDoc, setDoc, getDocFromServer, updateDoc, onSnapshot, collection, query, where, limit, getDocs } from 'firebase/firestore';
 import { User, UserRole, Product, CartItem, Order } from './types';
 import { handleFirestoreError, OperationType } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
@@ -17,6 +17,7 @@ import { cn } from './lib/utils';
 import Auth from './components/Auth';
 import Navbar from './components/Navbar';
 import ProductGrid from './components/ProductGrid';
+import ProductDetail from './components/ProductDetail';
 import Cart from './components/Cart';
 import Checkout from './components/Checkout';
 import MyOrders from './components/MyOrders';
@@ -30,7 +31,11 @@ import { seedProducts } from './lib/seed';
 export default function App() {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  const [view, setView] = useState<'home' | 'products' | 'cart' | 'checkout' | 'orders' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'login'>('home');
+  const [logoutLoading, setLogoutLoading] = useState(false);
+  const [logoutMessage, setLogoutMessage] = useState('');
+  const [config, setConfig] = useState<any>(null);
+  const [view, setView] = useState<'home' | 'products' | 'product_detail' | 'cart' | 'checkout' | 'orders' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'login'>('home');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua');
@@ -39,12 +44,23 @@ export default function App() {
   useEffect(() => {
     seedProducts();
     let unsubscribeDoc: (() => void) | null = null;
+    let unsubscribePending: (() => void) | null = null;
+
+    const unsubscribeConfig = onSnapshot(collection(db, 'settings'), (snapshot) => {
+      if (!snapshot.empty) {
+        setConfig(snapshot.docs[0].data());
+      }
+    });
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       // Cleanup previous document listener if any
       if (unsubscribeDoc) {
         unsubscribeDoc();
         unsubscribeDoc = null;
+      }
+      if (unsubscribePending) {
+        unsubscribePending();
+        unsubscribePending = null;
       }
 
       if (firebaseUser) {
@@ -71,20 +87,43 @@ export default function App() {
               }
             }
           } else {
-            const isGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com');
-            const isSuperAdminEmail = ["rizqydermawanai2@gmail.com", "rizqydermawanai@gmail.com"].includes(firebaseUser.email || '');
+            const pendingDocRef = doc(db, 'pending_users', firebaseUser.uid);
             
-            if (isGoogle || isSuperAdminEmail) {
-              const newUser: User = {
-                uid: firebaseUser.uid,
-                email: firebaseUser.email || '',
-                name: firebaseUser.displayName || 'User',
-                role: isSuperAdminEmail ? 'super_admin' : 'customer',
-              };
-              await setDoc(userDocRef, newUser);
-              setUser(newUser);
-              if (newUser.role === 'super_admin') setView('super_admin');
-            }
+            // Listen to pending_users collection
+            unsubscribePending = onSnapshot(pendingDocRef, (pendingSnap) => {
+              if (pendingSnap.exists()) {
+                setUser(pendingSnap.data() as User);
+                setLoading(false);
+              } else {
+                // If not in pending_users either, check if it's a new Google/SuperAdmin user
+                const isGoogle = firebaseUser.providerData.some(p => p.providerId === 'google.com');
+                const isSuperAdminEmail = ["rizqydermawanai2@gmail.com", "rizqydermawanai@gmail.com"].includes(firebaseUser.email || '');
+                
+                if (isGoogle || isSuperAdminEmail) {
+                  const newUser: User = {
+                    uid: firebaseUser.uid,
+                    email: firebaseUser.email || '',
+                    name: firebaseUser.displayName || 'User',
+                    role: isSuperAdminEmail ? 'super_admin' : 'customer',
+                  };
+                  setDoc(userDocRef, newUser).then(() => {
+                    setUser(newUser);
+                    if (newUser.role === 'super_admin') setView('super_admin');
+                  }).catch(err => {
+                    console.error("Error creating new user:", err);
+                  });
+                } else {
+                  // If not a new Google/SuperAdmin user and not in either collection, they might have been deleted
+                  // or the registration process hasn't completed yet.
+                  // We don't log them out immediately to allow the registration process to finish.
+                  if (!user) {
+                    setLoading(false);
+                  }
+                }
+              }
+            }, (error) => {
+              handleFirestoreError(error, OperationType.GET, `pending_users/${firebaseUser.uid}`);
+            });
           }
           setLoading(false);
         }, (error) => {
@@ -99,9 +138,56 @@ export default function App() {
 
     return () => {
       unsubscribeAuth();
+      unsubscribeConfig();
       if (unsubscribeDoc) unsubscribeDoc();
+      if (unsubscribePending) unsubscribePending();
     };
   }, []);
+
+  const handleLogout = async () => {
+    setLogoutLoading(true);
+    
+    if (user && user.role !== 'customer') {
+      const now = new Date();
+      const currentHour = now.getHours();
+      const currentMinute = now.getMinutes();
+      const currentTime = `${currentHour.toString().padStart(2, '0')}:${currentMinute.toString().padStart(2, '0')}`;
+      
+      const start = config?.workingHours?.start || '08:00';
+      const end = config?.workingHours?.end || '17:00';
+      
+      if (currentTime >= start && currentTime <= end) {
+        setLogoutMessage('Selamat istirahat sejenak...');
+      } else {
+        setLogoutMessage('Semoga hari kerja hari ini bermakna...');
+      }
+    } else if (user && user.role === 'customer') {
+      try {
+        const ordersQuery = query(
+          collection(db, 'orders'),
+          where('customerId', '==', user.uid),
+          limit(1)
+        );
+        const ordersSnap = await getDocs(ordersQuery);
+        
+        if (!ordersSnap.empty) {
+          setLogoutMessage('Terimakasih telah berbelanja pada kami');
+        } else {
+          setLogoutMessage('Selamat berbelanja kembali');
+        }
+      } catch (error) {
+        console.error("Error checking orders:", error);
+        setLogoutMessage('Selamat berbelanja kembali');
+      }
+    }
+    
+    setTimeout(async () => {
+      await signOut(auth);
+      setLogoutLoading(false);
+      setLogoutMessage('');
+      setView('login');
+    }, 2000);
+  };
 
   const addToCart = (product: Product) => {
     setCart(prev => {
@@ -129,14 +215,75 @@ export default function App() {
 
   const clearCart = () => setCart([]);
 
-  if (loading) {
+  const isDashboardView = ['admin_production', 'admin_packing', 'admin_sales', 'super_admin'].includes(view);
+
+  if (loading || logoutLoading) {
+    const isCustomerLogout = logoutLoading && user?.role === 'customer';
+
     return (
-      <div className="min-h-screen flex items-center justify-center bg-white">
+      <div className="min-h-screen flex flex-col items-center justify-center bg-white space-y-6">
         <motion.div 
-          animate={{ rotate: 360 }}
-          transition={{ repeat: Infinity, duration: 1, ease: "linear" }}
-          className="w-8 h-8 border-2 border-zinc-900 border-t-transparent rounded-full"
-        />
+          animate={{ 
+            scale: [1, 1.1, 1],
+            y: [0, -10, 0]
+          }}
+          transition={{ 
+            repeat: Infinity, 
+            duration: 2, 
+            ease: "easeInOut" 
+          }}
+          className="relative"
+        >
+          {isCustomerLogout ? (
+            <div className="relative flex flex-col items-center">
+              <motion.div
+                animate={{ 
+                  x: [-15, 15, -15],
+                }}
+                transition={{ 
+                  repeat: Infinity, 
+                  duration: 2, 
+                  ease: "easeInOut" 
+                }}
+                className="text-zinc-900"
+              >
+                <ShoppingCart size={80} strokeWidth={1.5} />
+              </motion.div>
+              <div className="flex gap-4 mt-4">
+                <motion.div 
+                  animate={{ y: [0, -8, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.4 }}
+                  className="w-2.5 h-2.5 bg-zinc-900 rounded-full"
+                />
+                <motion.div 
+                  animate={{ y: [0, -8, 0] }}
+                  transition={{ repeat: Infinity, duration: 0.4, delay: 0.2 }}
+                  className="w-2.5 h-2.5 bg-zinc-900 rounded-full"
+                />
+              </div>
+            </div>
+          ) : (
+            <svg width="80" height="80" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-900">
+              <circle cx="12" cy="12" r="10" />
+              <motion.path 
+                d="M8 14s1.5 2 4 2 4-2 4-2" 
+                animate={{ d: ["M8 14s1.5 2 4 2 4-2 4-2", "M8 15s1.5 3 4 3 4-3 4-3", "M8 14s1.5 2 4 2 4-2 4-2"] }}
+                transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+              />
+              <line x1="9" y1="9" x2="9.01" y2="9" />
+              <line x1="15" y1="9" x2="15.01" y2="9" />
+            </svg>
+          )}
+        </motion.div>
+        {logoutLoading && (
+          <motion.p 
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="text-lg font-bold text-zinc-900 text-center px-4"
+          >
+            {logoutMessage}
+          </motion.p>
+        )}
       </div>
     );
   }
@@ -148,7 +295,7 @@ export default function App() {
         cartCount={cart.reduce((acc, item) => acc + item.quantity, 0)} 
         setView={setView} 
         currentView={view}
-        onLogout={() => signOut(auth)}
+        onLogout={handleLogout}
         onLogin={() => setView('login')}
         onProfileClick={() => setShowProfile(true)}
       />
@@ -174,7 +321,7 @@ export default function App() {
               <p className="text-zinc-500">Akun admin Anda sedang ditinjau oleh Super Admin. Anda akan dapat mengakses dashboard setelah disetujui.</p>
             </div>
             <button 
-              onClick={() => signOut(auth)}
+              onClick={handleLogout}
               className="px-6 py-3 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all"
             >
               Keluar
@@ -233,6 +380,10 @@ export default function App() {
                 <ProductGrid 
                   limit={4} 
                   onAddToCart={addToCart} 
+                  onProductClick={(p) => {
+                    setSelectedProduct(p);
+                    setView('product_detail');
+                  }}
                   searchQuery={searchQuery}
                   categoryFilter={categoryFilter}
                 />
@@ -275,10 +426,22 @@ export default function App() {
               </div>
               <ProductGrid 
                 onAddToCart={addToCart} 
+                onProductClick={(p) => {
+                  setSelectedProduct(p);
+                  setView('product_detail');
+                }}
                 searchQuery={searchQuery} 
                 categoryFilter={categoryFilter}
               />
             </motion.div>
+          )}
+
+          {view === 'product_detail' && selectedProduct && (
+            <ProductDetail 
+              product={selectedProduct} 
+              onAddToCart={addToCart} 
+              onBack={() => setView('products')} 
+            />
           )}
 
           {view === 'cart' && (
@@ -312,45 +475,47 @@ export default function App() {
 
           {view === 'orders' && user && <MyOrders user={user} />}
 
-          {view === 'admin_production' && user?.role === 'admin_production' && user.approved !== false && <AdminProductionDashboard />}
-          {view === 'admin_packing' && user?.role === 'admin_packing' && user.approved !== false && <AdminPackingDashboard />}
-          {view === 'admin_sales' && user?.role === 'admin_sales' && user.approved !== false && <AdminSalesDashboard user={user} />}
-          {view === 'super_admin' && user?.role === 'super_admin' && <SuperAdminDashboard />}
+          {view === 'admin_production' && user?.role === 'admin_production' && user.approved !== false && <AdminProductionDashboard onViewWebsite={() => setView('home')} />}
+          {view === 'admin_packing' && user?.role === 'admin_packing' && user.approved !== false && <AdminPackingDashboard onViewWebsite={() => setView('home')} />}
+          {view === 'admin_sales' && user?.role === 'admin_sales' && user.approved !== false && <AdminSalesDashboard user={user} onViewWebsite={() => setView('home')} />}
+          {view === 'super_admin' && user?.role === 'super_admin' && <SuperAdminDashboard onViewWebsite={() => setView('home')} />}
         </AnimatePresence>
         )}
       </main>
 
-      <footer className="bg-white border-t border-zinc-100 py-12">
-        <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8">
-          <div className="space-y-4">
-            <h3 className="text-xl font-bold">Everez.</h3>
-            <p className="text-zinc-500">Pakaian berkualitas tinggi untuk mereka yang menghargai gaya dan kenyamanan.</p>
-          </div>
-          <div>
-            <h4 className="font-semibold mb-4">Belanja</h4>
-            <ul className="space-y-2 text-zinc-500">
-              <li><button onClick={() => setView('products')}>Semua Produk</button></li>
-              <li><button onClick={() => { setCategoryFilter('Kaos'); setView('products'); }}>Kaos</button></li>
-              <li><button onClick={() => { setCategoryFilter('Hoodie'); setView('products'); }}>Hoodie</button></li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-semibold mb-4">Bantuan</h4>
-            <ul className="space-y-2 text-zinc-500">
-              <li>Kontak Kami</li>
-              <li>Pengiriman</li>
-              <li>Pengembalian</li>
-            </ul>
-          </div>
-          <div>
-            <h4 className="font-semibold mb-4">Ikuti Kami</h4>
-            <div className="flex gap-4">
-              <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">IG</div>
-              <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">TW</div>
+      {!isDashboardView && (
+        <footer className="bg-white border-t border-zinc-100 py-12">
+          <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-4 gap-8">
+            <div className="space-y-4">
+              <h3 className="text-xl font-bold">Everez.</h3>
+              <p className="text-zinc-500">Pakaian berkualitas tinggi untuk mereka yang menghargai gaya dan kenyamanan.</p>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Belanja</h4>
+              <ul className="space-y-2 text-zinc-500">
+                <li><button onClick={() => setView('products')}>Semua Produk</button></li>
+                <li><button onClick={() => { setCategoryFilter('Kaos'); setView('products'); }}>Kaos</button></li>
+                <li><button onClick={() => { setCategoryFilter('Hoodie'); setView('products'); }}>Hoodie</button></li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Bantuan</h4>
+              <ul className="space-y-2 text-zinc-500">
+                <li>Kontak Kami</li>
+                <li>Pengiriman</li>
+                <li>Pengembalian</li>
+              </ul>
+            </div>
+            <div>
+              <h4 className="font-semibold mb-4">Ikuti Kami</h4>
+              <div className="flex gap-4">
+                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">IG</div>
+                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">TW</div>
+              </div>
             </div>
           </div>
-        </div>
-      </footer>
+        </footer>
+      )}
     </div>
   );
 }

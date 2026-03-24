@@ -106,9 +106,9 @@ service cloud.firestore {
     }
 
     // Domain Validators
-    function isValidUser(data) {
+    function isValidUserCreate(data, userId) {
       return data.keys().hasAll(['uid', 'email', 'name', 'role']) &&
-             data.uid == request.auth.uid &&
+             data.uid == userId &&
              isValidEmail(data.email) &&
              data.name is string && data.name.size() <= 100 &&
              data.role in ['customer', 'admin_sales', 'admin_packing', 'admin_production', 'super_admin'] &&
@@ -116,7 +116,21 @@ service cloud.firestore {
              (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
              (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
-             (!('photoURL' in data) || isValidUrl(data.photoURL));
+             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('attendanceScore' in data) || (data.attendanceScore is number));
+    }
+
+    function isValidUserUpdate(data, userId) {
+      return (data.uid == userId) &&
+             (!('email' in data) || isValidEmail(data.email)) &&
+             (!('name' in data) || (data.name is string && data.name.size() <= 100)) &&
+             (!('role' in data) || data.role in ['customer', 'admin_sales', 'admin_packing', 'admin_production', 'super_admin']) &&
+             (!('approved' in data) || data.approved is bool) &&
+             (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
+             (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
+             (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
+             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('attendanceScore' in data) || (data.attendanceScore is number));
     }
 
     function isValidProduct(data) {
@@ -139,20 +153,49 @@ service cloud.firestore {
              data.createdAt is timestamp;
     }
 
+    function isValidAttendance(data) {
+      return data.keys().hasAll(['userId', 'date', 'status']) &&
+             data.userId is string &&
+             data.date is string &&
+             data.status in ['Hadir', 'Izin', 'Sakit'] &&
+             (!('userName' in data) || data.userName is string) &&
+             (!('photoUrl' in data) || data.photoUrl == '' || isValidUrl(data.photoUrl)) &&
+             (!('reason' in data) || (data.reason is string && data.reason.size() <= 500)) &&
+             (!('sickNoteUrl' in data) || data.sickNoteUrl == '' || isValidUrl(data.sickNoteUrl)) &&
+             (!('createdAt' in data) || data.createdAt is timestamp);
+    }
+
     // Rules
+    match /pending_users/{userId} {
+      allow read: if isOwner(userId) || isSuperAdmin();
+      allow create: if isAuthenticated() && request.auth.uid == userId && 
+                    isValidUserCreate(request.resource.data, userId) &&
+                    request.resource.data.role in ['admin_sales', 'admin_packing', 'admin_production'] && 
+                    request.resource.data.approved == false;
+      allow update: if isAuthenticated() && isValidUserUpdate(request.resource.data, userId) &&
+                    (
+                      (isOwner(userId) && 
+                       request.resource.data.role == resource.data.role && 
+                       (!('approved' in request.resource.data) || request.resource.data.approved == resource.data.approved)) ||
+                      isSuperAdmin()
+                    );
+      allow delete: if isSuperAdmin();
+    }
+
     match /users/{userId} {
       // PII Protection: Only owner or Super Admin can read full profile
       allow read: if isOwner(userId) || isSuperAdmin();
       
-      allow create: if isAuthenticated() && request.auth.uid == userId && 
-                    isValidUser(request.resource.data) &&
+      allow create: if isAuthenticated() && isValidUserCreate(request.resource.data, userId) &&
                     (
-                      request.resource.data.role == 'customer' || 
-                      (request.resource.data.role in ['admin_sales', 'admin_packing', 'admin_production'] && request.resource.data.approved == false) ||
+                      (request.auth.uid == userId && (
+                        request.resource.data.role == 'customer' || 
+                        (request.resource.data.role in ['admin_sales', 'admin_packing', 'admin_production'] && request.resource.data.approved == false)
+                      )) ||
                       isSuperAdmin()
                     );
                     
-      allow update: if isAuthenticated() && isValidUser(request.resource.data) &&
+      allow update: if isAuthenticated() && isValidUserUpdate(request.resource.data, userId) &&
                     (
                       // Owner can update their profile but NOT their role or approval status
                       (isOwner(userId) && 
@@ -172,6 +215,16 @@ service cloud.firestore {
       allow delete: if isSuperAdmin();
     }
 
+    match /inventory/{inventoryId} {
+      allow read: if isProductionAdmin() || isPackingAdmin() || isSalesAdmin() || isSuperAdmin();
+      allow write: if isProductionAdmin() || isSuperAdmin();
+    }
+
+    match /settings/{settingId} {
+      allow read: if isAuthenticated();
+      allow write: if isSuperAdmin();
+    }
+
     match /orders/{orderId} {
       allow read: if isAuthenticated() && (request.auth.uid == resource.data.customerId || isAdmin());
       
@@ -189,6 +242,14 @@ service cloud.firestore {
         isSuperAdmin()
       );
       
+      allow delete: if isSuperAdmin();
+    }
+
+    match /attendance/{attendanceId} {
+      allow get: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId);
+      allow list: if isSuperAdmin() || isAuthenticated();
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidAttendance(request.resource.data);
+      allow update: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId && isValidAttendance(request.resource.data));
       allow delete: if isSuperAdmin();
     }
   }

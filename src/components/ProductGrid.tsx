@@ -8,11 +8,12 @@ import { Plus, ShoppingCart } from 'lucide-react';
 interface ProductGridProps {
   limit?: number;
   onAddToCart: (product: Product) => void;
+  onProductClick?: (product: Product) => void;
   searchQuery: string;
   categoryFilter: string;
 }
 
-export default function ProductGrid({ limit, onAddToCart, searchQuery, categoryFilter }: ProductGridProps) {
+export default function ProductGrid({ limit, onAddToCart, onProductClick, searchQuery, categoryFilter }: ProductGridProps) {
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -63,7 +64,8 @@ export default function ProductGrid({ limit, onAddToCart, searchQuery, categoryF
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.1 }}
-          className="group"
+          className="group cursor-pointer"
+          onClick={() => onProductClick?.(product)}
         >
           <div className="relative aspect-[3/4] rounded-3xl overflow-hidden bg-zinc-100">
             <img 
@@ -74,8 +76,11 @@ export default function ProductGrid({ limit, onAddToCart, searchQuery, categoryF
             />
             <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
               <button 
-                onClick={() => onAddToCart(product)}
-                className="bg-white text-zinc-900 p-4 rounded-full shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onAddToCart(product);
+                }}
+                className="bg-white text-zinc-900 p-4 rounded-full shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 hover:scale-110"
               >
                 <ShoppingCart className="w-6 h-6" />
               </button>

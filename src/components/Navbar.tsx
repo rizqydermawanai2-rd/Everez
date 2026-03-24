@@ -24,7 +24,7 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
     { id: 'admin_production', label: 'Produksi', icon: LayoutDashboard, hide: !user || user.role !== 'admin_production' },
     { id: 'admin_packing', label: 'Packing', icon: LayoutDashboard, hide: !user || user.role !== 'admin_packing' },
     { id: 'admin_sales', label: 'Sales', icon: LayoutDashboard, hide: !user || user.role !== 'admin_sales' },
-    { id: 'super_admin', label: 'CEO', icon: LayoutDashboard, hide: !user || user.role !== 'super_admin' },
+    { id: 'super_admin', label: 'CEO', icon: LayoutDashboard, hide: !user || (user.role !== 'super_admin' && user.role !== 'vice_ceo') },
   ];
 
   return (
@@ -32,10 +32,12 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
         <button 
           onClick={() => {
-            if (user && user.role !== 'customer' && user.role !== 'super_admin') {
+            if (user && user.role !== 'customer' && user.role !== 'super_admin' && user.role !== 'vice_ceo') {
               if (user.role === 'admin_production') setView('admin_production');
               else if (user.role === 'admin_packing') setView('admin_packing');
               else if (user.role === 'admin_sales') setView('admin_sales');
+            } else if (user && (user.role === 'super_admin' || user.role === 'vice_ceo')) {
+              setView('super_admin');
             } else {
               setView('home');
             }
@@ -93,7 +95,7 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
                   </div>
                   <div className="text-left">
                     <p className="text-sm font-bold group-hover:text-zinc-900 transition-colors">{user.name}</p>
-                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{user.role === 'super_admin' ? 'CEO' : user.role.replace('admin_', 'Admin ')}</p>
+                    <p className="text-[10px] text-zinc-500 uppercase tracking-wider">{user.role === 'super_admin' ? 'CEO' : user.role === 'vice_ceo' ? 'Wakil CEO' : user.role.replace('admin_', 'Admin ')}</p>
                   </div>
                 </button>
                 <div className="h-6 w-[1px] bg-zinc-200" />
@@ -157,7 +159,7 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
                       </div>
                       <div>
                         <p className="font-bold">{user.name}</p>
-                        <p className="text-xs text-zinc-500 uppercase tracking-wider">{user.role === 'super_admin' ? 'CEO' : user.role}</p>
+                        <p className="text-xs text-zinc-500 uppercase tracking-wider">{user.role === 'super_admin' ? 'CEO' : user.role === 'vice_ceo' ? 'Wakil CEO' : user.role}</p>
                       </div>
                     </button>
                     <button onClick={onLogout} className="text-red-500 font-medium">Logout</button>

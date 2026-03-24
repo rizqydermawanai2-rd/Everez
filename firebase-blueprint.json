@@ -12,7 +12,8 @@
         "address": { "type": "string" },
         "phone": { "type": "string" },
         "city": { "type": "string" },
-        "photoURL": { "type": "string" }
+        "photoURL": { "type": "string" },
+        "attendanceScore": { "type": "number" }
       },
       "required": ["uid", "email", "role"]
     },
@@ -26,8 +27,21 @@
         "price": { "type": "number" },
         "category": { "type": "string" },
         "image": { "type": "string" },
+        "images": { "type": "array", "items": { "type": "string" } },
         "description": { "type": "string" },
-        "stock": { "type": "integer" }
+        "stock": { "type": "integer" },
+        "features": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": { "type": "string" },
+              "enabled": { "type": "boolean" },
+              "title": { "type": "string" },
+              "description": { "type": "string" }
+            }
+          }
+        }
       },
       "required": ["name", "price", "category", "stock"]
     },
@@ -58,12 +72,46 @@
         "trackingNumber": { "type": "string" }
       },
       "required": ["customerId", "items", "total", "status", "address"]
+    },
+    "InventoryItem": {
+      "title": "InventoryItem",
+      "description": "Raw material or supply item",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "category": { "type": "string" },
+        "stock": { "type": "number" },
+        "unit": { "type": "string" },
+        "minStock": { "type": "number" }
+      },
+      "required": ["name", "category", "stock", "unit", "minStock"]
+    },
+    "Attendance": {
+      "title": "Attendance",
+      "description": "Attendance record",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "userId": { "type": "string" },
+        "date": { "type": "string", "format": "date" },
+        "status": { "type": "string", "enum": ["Hadir", "Izin", "Sakit"] },
+        "photoUrl": { "type": "string" },
+        "reason": { "type": "string" },
+        "sickNoteUrl": { "type": "string" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "date", "status"]
     }
   },
   "firestore": {
     "/users/{userId}": {
       "schema": "User",
       "description": "User profiles"
+    },
+    "/pending_users/{userId}": {
+      "schema": "User",
+      "description": "Users awaiting approval"
     },
     "/products/{productId}": {
       "schema": "Product",
@@ -72,6 +120,14 @@
     "/orders/{orderId}": {
       "schema": "Order",
       "description": "Customer orders"
+    },
+    "/inventory/{itemId}": {
+      "schema": "InventoryItem",
+      "description": "Inventory of raw materials"
+    },
+    "/attendance/{attendanceId}": {
+      "schema": "Attendance",
+      "description": "Attendance records"
     }
   }
 }

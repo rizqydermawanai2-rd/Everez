@@ -6,7 +6,7 @@ import {
 import { 
   Search, Bell, Settings, LogOut, LayoutDashboard,
   ClipboardList, Package, Users, Plus, 
-  Clock, CheckCircle2, AlertCircle, Droplets, FlaskConical, Box, Trash2
+  Clock, CheckCircle2, AlertCircle, Droplets, FlaskConical, Box, Trash2, Globe
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { motion } from 'motion/react';
@@ -14,37 +14,56 @@ import { db, auth, handleFirestoreError, OperationType } from '../../firebase';
 import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
 import { Order } from '../../types';
 
-const data = [
-  { name: 'Mon', count: 12 },
-  { name: 'Tue', count: 15 },
-  { name: 'Wed', count: 8 },
-  { name: 'Thu', count: 10 },
-  { name: 'Fri', count: 18 },
-  { name: 'Sat', count: 20 },
-  { name: 'Sun', count: 14 },
-];
-
 const pieData = [
   { name: 'Returning', value: 9 },
   { name: 'New', value: 2 },
 ];
 
-const COLORS = ['#1e40af', '#e5e7eb'];
+const COLORS = ['#09090b', '#e4e4e7'];
 
-export default function AdminProductionDashboard() {
+interface AdminProductionDashboardProps {
+  onViewWebsite?: () => void;
+}
+
+export default function AdminProductionDashboard({ onViewWebsite }: AdminProductionDashboardProps) {
   const [orders, setOrders] = useState<Order[]>([]);
+  const [inventory, setInventory] = useState<any[]>([]);
+  const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [activeTab, setActiveTab] = useState('dashboard');
 
   useEffect(() => {
-    const unsub = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
       setLoading(false);
     }, (error) => {
-      handleFirestoreError(error, OperationType.LIST, 'orders');
+      handleFirestoreError(error, OperationType.LIST, 'orders', false);
     });
 
-    return () => unsub();
+    const unsubInventory = onSnapshot(collection(db, 'inventory'), (snapshot) => {
+      setInventory(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'inventory', false);
+    });
+
+    const unsubProducts = onSnapshot(collection(db, 'products'), (snapshot) => {
+      setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'products', false);
+    });
+
+    return () => {
+      unsubOrders();
+      unsubInventory();
+      unsubProducts();
+    };
   }, []);
+
+  const getStockIndicator = (stock: number) => {
+    if (stock === 0) return { label: 'Habis', color: 'bg-red-50 text-red-600', dot: 'bg-red-500' };
+    if (stock <= 5) return { label: 'Sedikit', color: 'bg-orange-50 text-orange-600', dot: 'bg-orange-500' };
+    return { label: 'Banyak', color: 'bg-emerald-50 text-emerald-600', dot: 'bg-emerald-500' };
+  };
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -64,253 +83,438 @@ export default function AdminProductionDashboard() {
   };
 
   const stats = [
-    { label: 'Perlu Produksi', count: orders.filter(o => o.status === 'Diproses').length, icon: AlertCircle, color: 'bg-blue-100 text-blue-600' },
-    { label: 'Sedang Produksi', count: orders.filter(o => o.status === 'Produksi').length, icon: Clock, color: 'bg-orange-100 text-orange-600' },
-    { label: 'Selesai Produksi', count: orders.filter(o => ['Packing', 'Siap Kirim', 'Dikirim', 'Selesai'].includes(o.status)).length, icon: CheckCircle2, color: 'bg-zinc-900 text-white' },
+    { label: 'Perlu Produksi', count: orders.filter(o => o.status === 'Diproses').length, icon: AlertCircle, color: 'text-blue-600', bg: 'bg-blue-50' },
+    { label: 'Sedang Produksi', count: orders.filter(o => o.status === 'Produksi').length, icon: Clock, color: 'text-orange-600', bg: 'bg-orange-50' },
+    { label: 'Stok Tersedia', count: products.reduce((acc, p) => acc + (p.stock || 0), 0), icon: Box, color: 'text-purple-600', bg: 'bg-purple-50' },
+    { label: 'Selesai Produksi', count: orders.filter(o => ['Packing', 'Siap Kirim', 'Dikirim', 'Selesai'].includes(o.status)).length, icon: CheckCircle2, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   ];
+
   return (
-    <div className="flex min-h-screen bg-[#E4E3E0] font-sans text-[#141414]">
-      {/* Sidebar - Minimal Icons */}
-      <aside className="w-20 bg-white border-r border-[#141414]/10 flex flex-col items-center py-8">
-        <div className="w-10 h-10 bg-[#141414] rounded-xl flex items-center justify-center mb-12">
-          <Package className="w-6 h-6 text-white" />
+    <div className="flex flex-col md:flex-row h-[100dvh] md:h-[85vh] bg-white md:rounded-[2rem] md:shadow-xl md:shadow-zinc-200/50 md:border border-zinc-200/60 overflow-hidden font-sans text-zinc-950">
+      {/* Sidebar */}
+      <aside className="w-full md:w-64 bg-zinc-50/50 border-b md:border-b-0 md:border-r border-zinc-100 flex flex-row md:flex-col p-4 md:p-6 shrink-0 overflow-x-auto md:overflow-visible">
+        <div className="flex items-center gap-3 md:mb-10 px-2 shrink-0">
+          <div className="w-10 h-10 bg-zinc-900 rounded-xl flex items-center justify-center shadow-md">
+            <FlaskConical className="w-5 h-5 text-white" />
+          </div>
+          <div className="hidden md:block">
+            <h1 className="font-bold text-lg leading-tight">Produksi</h1>
+            <p className="text-[10px] text-zinc-500 font-medium uppercase tracking-wider">Admin Panel</p>
+          </div>
         </div>
         
-        <nav className="flex-1 space-y-8">
+        <nav className="flex-1 flex flex-row md:flex-col gap-2 md:gap-1 ml-4 md:ml-0 overflow-x-auto md:overflow-visible hide-scrollbar">
           {[
-            { icon: LayoutDashboard, label: 'Dashboard', active: true },
-            { icon: ClipboardList, label: 'Pesanan' },
-            { icon: FlaskConical, label: 'Daftar Harga' },
-            { icon: Users, label: 'Pelanggan' },
-            { icon: Droplets, label: 'Persediaan' },
-            { icon: Settings, label: 'Pengaturan' },
+            { id: 'dashboard', icon: LayoutDashboard, label: 'Ringkasan Produksi' },
+            { id: 'orders', icon: ClipboardList, label: 'Antrian Produksi' },
+            { id: 'products', icon: Package, label: 'Katalog Produk' },
+            { id: 'inventory', icon: Droplets, label: 'Stok Bahan' },
           ].map((item) => (
             <button
-              key={item.label}
+              key={item.id}
+              onClick={() => setActiveTab(item.id)}
               className={cn(
-                "p-3 rounded-xl transition-all relative group",
-                item.active 
-                  ? "bg-[#1e40af] text-white shadow-lg shadow-blue-900/20" 
-                  : "text-zinc-400 hover:bg-zinc-100 hover:text-zinc-900"
+                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
+                activeTab === item.id 
+                  ? "bg-white text-zinc-900 shadow-sm border border-zinc-200/60" 
+                  : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
               )}
             >
-              <item.icon className="w-5 h-5" />
-              <span className="absolute left-full ml-4 px-2 py-1 bg-[#141414] text-white text-[10px] rounded opacity-0 group-hover:opacity-100 transition-opacity whitespace-nowrap z-50">
-                {item.label}
-              </span>
+              <item.icon className="w-4 h-4" />
+              <span className="hidden md:inline">{item.label}</span>
             </button>
           ))}
+          
+          {onViewWebsite && (
+            <button
+              onClick={onViewWebsite}
+              className="flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
+            >
+              <Globe className="w-4 h-4" />
+              <span className="hidden md:inline">Lihat Website</span>
+            </button>
+          )}
         </nav>
 
-        <button className="p-3 text-red-500 hover:bg-red-50 rounded-xl transition-all">
-          <LogOut className="w-5 h-5" />
-        </button>
+        <div className="hidden md:block mt-auto pt-6 border-t border-zinc-200/60">
+          <div className="flex items-center gap-3 px-2 mb-6">
+            <div className="w-9 h-9 rounded-full bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600">
+              AP
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-bold text-zinc-900 truncate">Admin Produksi</p>
+              <p className="text-[10px] text-zinc-500 truncate">Online</p>
+            </div>
+          </div>
+        </div>
       </aside>
 
       {/* Main Content */}
-      <main className="flex-1 overflow-y-auto p-12">
-        <header className="flex items-center justify-between mb-12">
-          <div className="relative w-80">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
-            <input 
-              type="text" 
-              placeholder="Search" 
-              className="w-full pl-10 pr-4 py-2 bg-white border-none rounded-xl text-sm focus:outline-none shadow-sm"
-            />
+      <main className="flex-1 overflow-y-auto p-4 md:p-8 bg-zinc-50/30">
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-8">
+          <div>
+            <h2 className="text-2xl font-bold tracking-tight">Pusat Produksi</h2>
+            <p className="text-sm text-zinc-500">Pantau antrean produksi dan ketersediaan stok bahan.</p>
           </div>
           
-          <div className="flex items-center gap-6">
-            <button className="relative">
-              <Bell className="w-5 h-5 text-zinc-600" />
-              <span className="absolute -top-1 -right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-[#E4E3E0]" />
-            </button>
-            <div className="flex items-center gap-3">
-              <img 
-                src="https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=100&h=100&fit=crop" 
-                alt="Profile" 
-                className="w-10 h-10 rounded-xl object-cover"
+          <div className="flex items-center gap-4">
+            <div className="relative flex-1 md:w-64">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+              <input 
+                type="text" 
+                placeholder="Cari pesanan..." 
+                className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200/60 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 shadow-sm"
               />
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold">Max Brown</p>
-                <Settings className="w-4 h-4 text-zinc-400" />
-              </div>
             </div>
+            <button className="w-10 h-10 shrink-0 bg-white border border-zinc-200/60 rounded-xl flex items-center justify-center text-zinc-600 hover:bg-zinc-50 shadow-sm relative">
+              <Bell className="w-4 h-4" />
+              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
+            </button>
           </div>
         </header>
 
-        <div className="grid grid-cols-12 gap-8">
-          {/* Left Column */}
-          <div className="col-span-8 space-y-8">
-            <div className="flex items-center justify-between">
-              <h2 className="text-4xl font-bold tracking-tight">Dashboard</h2>
-              <p className="text-zinc-500 font-medium">9 Mar 2024, Saturday</p>
-            </div>
-
-            {/* Orders Section */}
-            <section>
-              <div className="flex items-center justify-between mb-6">
-                <h3 className="text-xl font-bold">Pesanan</h3>
-                <button className="text-sm font-bold text-blue-600 hover:underline">Lihat Semua</button>
-              </div>
-              <div className="grid grid-cols-4 gap-4">
-                <button className="aspect-square border-2 border-dashed border-zinc-300 rounded-3xl flex items-center justify-center hover:border-zinc-400 transition-all group">
-                  <div className="w-12 h-12 bg-white rounded-2xl shadow-sm flex items-center justify-center group-hover:scale-110 transition-transform">
-                    <Plus className="w-6 h-6 text-orange-500" />
-                  </div>
-                </button>
-                {orders.slice(0, 3).map((order) => (
-                  <div key={order.id} className="bg-white p-6 rounded-3xl shadow-sm flex flex-col justify-between">
-                    <div className="flex items-center justify-between mb-4">
-                      <span className="text-xs font-bold text-zinc-400">#{order.id.slice(-5)}</span>
-                      <span className={cn(
-                        "px-3 py-1 text-[10px] font-bold text-white rounded-full",
-                        order.status === 'Diproses' ? 'bg-blue-500' : 'bg-orange-500'
-                      )}>
-                        {order.status}
-                      </span>
+        <div className="space-y-6">
+          {activeTab === 'dashboard' && (
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+              {/* Left Column */}
+              <div className="lg:col-span-8 space-y-6">
+                {/* Stats Grid */}
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  {stats.map((status) => (
+                    <div key={status.label} className="bg-white p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-row sm:flex-col items-center sm:items-start gap-4">
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", status.bg, status.color)}>
+                        <status.icon className="w-5 h-5" />
+                      </div>
+                      <div>
+                        <p className="text-2xl sm:text-3xl font-bold text-zinc-900">{status.count}</p>
+                        <p className="text-xs font-medium text-zinc-500 mt-1">{status.label}</p>
+                      </div>
                     </div>
-                    <div className="mb-4">
-                      <p className="text-[10px] text-zinc-400 mb-1">
-                        {order.createdAt instanceof Date ? order.createdAt.toLocaleDateString() : 'Baru'}
+                  ))}
+                </div>
+
+                {/* Quick Orders Section */}
+                <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                  <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
+                    <h3 className="text-lg font-bold">Antrean Produksi Terbaru</h3>
+                    <button onClick={() => setActiveTab('orders')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Lihat Semua</button>
+                  </div>
+                  <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                    <div className="space-y-4">
+                      {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).slice(0, 5).map((order) => (
+                        <div key={order.id} className="group p-4 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-12 h-12 bg-white rounded-xl border border-zinc-200/60 flex items-center justify-center shadow-sm shrink-0">
+                              <Package className="w-5 h-5 text-zinc-400" />
+                            </div>
+                            <div className="min-w-0">
+                              <p className="font-bold text-sm text-zinc-900 truncate">#{order.id.slice(-6)}</p>
+                              <p className="text-xs text-zinc-500 truncate">{order.customerName || 'Customer'} • {order.items.length} Items</p>
+                            </div>
+                          </div>
+                          <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+                            <span className={cn(
+                              "px-3 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider shrink-0",
+                              order.status === 'Diproses' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
+                            )}>
+                              {order.status}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Right Column */}
+              <div className="lg:col-span-4 space-y-6">
+                {/* Supply Summary */}
+                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
+                  <div className="flex items-center justify-between mb-6">
+                    <h3 className="text-lg font-bold">Stok Kritis</h3>
+                    <button onClick={() => setActiveTab('inventory')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Detail</button>
+                  </div>
+                  <div className="space-y-5">
+                    {inventory.filter(item => item.stock <= item.minStock).slice(0, 3).map((item) => (
+                      <div key={item.id} className="space-y-2">
+                        <div className="flex items-center justify-between text-sm">
+                          <span className="font-medium text-zinc-700">{item.name}</span>
+                          <span className="text-zinc-500 font-mono text-xs">{item.stock} {item.unit}</span>
+                        </div>
+                        <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                          <div 
+                            className="h-full rounded-full transition-all bg-red-500" 
+                            style={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }} 
+                          />
+                        </div>
+                      </div>
+                    ))}
+                    {inventory.filter(item => item.stock <= item.minStock).length === 0 && (
+                      <p className="text-xs text-zinc-400 italic">Semua stok aman.</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Total Customer Chart */}
+                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
+                  <h3 className="text-lg font-bold mb-6">Tipe Pesanan</h3>
+                  <div className="h-40 flex items-center justify-center">
+                    <ResponsiveContainer width="100%" height="100%">
+                      <PieChart>
+                        <Pie
+                          data={pieData}
+                          innerRadius={40}
+                          outerRadius={60}
+                          paddingAngle={5}
+                          dataKey="value"
+                        >
+                          {pieData.map((entry, index) => (
+                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                          ))}
+                        </Pie>
+                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                      </PieChart>
+                    </ResponsiveContainer>
+                  </div>
+                  <div className="flex justify-center gap-6 mt-2">
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-zinc-900" />
+                      <span className="text-xs text-zinc-500 font-medium">Custom (9)</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <div className="w-3 h-3 rounded-full bg-zinc-200" />
+                      <span className="text-xs text-zinc-500 font-medium">Ready (2)</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'orders' && (
+            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden">
+              <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
+                <h3 className="text-xl font-bold">Daftar Antrean Produksi</h3>
+                <div className="flex gap-2">
+                  <span className="px-3 py-1 bg-blue-50 text-blue-600 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                    {orders.filter(o => o.status === 'Diproses').length} Perlu Produksi
+                  </span>
+                  <span className="px-3 py-1 bg-orange-50 text-orange-600 text-[10px] font-bold rounded-full uppercase tracking-wider">
+                    {orders.filter(o => o.status === 'Produksi').length} Sedang Produksi
+                  </span>
+                </div>
+              </div>
+              <div className="p-6">
+                <div className="space-y-4">
+                  {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).map((order) => (
+                    <div key={order.id} className="group p-6 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col md:flex-row md:items-center justify-between gap-6">
+                      <div className="flex items-center gap-6">
+                        <div className="w-14 h-14 bg-white rounded-2xl border border-zinc-200/60 flex items-center justify-center shadow-sm shrink-0">
+                          <Package className="w-6 h-6 text-zinc-400" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-3 mb-1">
+                            <p className="font-bold text-lg text-zinc-900">#{order.id.slice(-6)}</p>
+                            <span className={cn(
+                              "px-2 py-0.5 text-[10px] font-bold rounded-md uppercase tracking-wider",
+                              order.status === 'Diproses' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
+                            )}>
+                              {order.status}
+                            </span>
+                          </div>
+                          <p className="text-sm text-zinc-500">{order.customerName || 'Customer'} • {order.items.length} Items • {new Date(order.createdAt).toLocaleDateString()}</p>
+                        </div>
+                      </div>
+                      
+                      <div className="flex flex-wrap gap-3">
+                        {order.items.map((item, idx) => (
+                          <div key={idx} className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-medium">
+                            {item.name} ({item.quantity}x)
+                          </div>
+                        ))}
+                      </div>
+
+                      <div className="flex items-center gap-3">
+                        {order.status === 'Diproses' && (
+                          <button 
+                            onClick={() => updateStatus(order.id, 'Produksi')}
+                            className="flex-1 md:flex-none px-6 py-2.5 bg-zinc-900 text-white text-sm font-bold rounded-xl hover:bg-zinc-800 transition-all shadow-sm"
+                          >
+                            Mulai Produksi
+                          </button>
+                        )}
+                        {order.status === 'Produksi' && (
+                          <button 
+                            onClick={() => updateStatus(order.id, 'Packing')}
+                            className="flex-1 md:flex-none px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-sm"
+                          >
+                            Selesai Produksi
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                  {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).length === 0 && (
+                    <div className="text-center py-20 text-zinc-400">
+                      <CheckCircle2 className="w-16 h-16 mx-auto mb-4 opacity-20" />
+                      <p className="text-lg font-bold text-zinc-900">Antrean Kosong</p>
+                      <p className="text-sm">Semua pesanan telah diproses atau belum ada pesanan baru.</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'products' && (
+            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+              <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
+                <h3 className="text-lg font-bold">Katalog Produk & Status Stok</h3>
+                <div className="flex items-center gap-4">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500" />
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Banyak</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-orange-500" />
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Sedikit</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-red-500" />
+                    <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest">Habis</span>
+                  </div>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-left">
+                  <thead className="bg-zinc-50/50 border-b border-zinc-100">
+                    <tr>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Produk</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Kategori</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Stok</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Indikator</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-50">
+                    {products.map(p => (
+                      <tr key={p.id} className="hover:bg-zinc-50/50 transition-colors">
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-4">
+                            <div className="w-10 h-10 rounded-lg bg-zinc-100 overflow-hidden border border-zinc-200/60 shrink-0">
+                              <img src={p.image || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" />
+                            </div>
+                            <p className="font-bold text-sm text-zinc-900">{p.name}</p>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="px-2 py-1 bg-zinc-100 text-zinc-600 text-[10px] font-bold rounded-md uppercase tracking-wider">{p.category}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className={cn(
+                            "text-sm font-medium",
+                            p.stock <= 5 ? "text-red-600 font-bold" : "text-zinc-600"
+                          )}>{p.stock} Pcs</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center gap-2">
+                            <div className={cn("w-2 h-2 rounded-full", getStockIndicator(p.stock).dot)} />
+                            <span className={cn("px-2 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider", getStockIndicator(p.stock).color)}>
+                              {getStockIndicator(p.stock).label}
+                            </span>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {activeTab === 'inventory' && (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {inventory.length > 0 ? (
+                inventory.map((item) => (
+                  <div key={item.id} className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm space-y-4">
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">{item.category}</p>
+                        <h4 className="font-bold text-zinc-900">{item.name}</h4>
+                      </div>
+                      {item.stock <= item.minStock && (
+                        <span className="p-1.5 bg-red-50 text-red-600 rounded-lg">
+                          <AlertCircle className="w-4 h-4" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-end justify-between">
+                      <p className="text-2xl font-bold text-zinc-900">{item.stock} {item.unit}</p>
+                      <p className="text-xs font-bold text-zinc-500">
+                        {Math.round(Math.min((item.stock / (item.minStock * 2)) * 100, 100))}% Tersedia
                       </p>
-                      <p className="font-bold truncate">{order.customerName || 'Customer'}</p>
-                      <p className="text-xs text-zinc-500">{order.items.length} Items</p>
                     </div>
-                    <div className="flex items-center justify-between pt-4 border-t border-zinc-50">
-                      <div className="flex gap-2">
-                        <button 
-                          onClick={() => updateStatus(order.id, 'Packing')}
-                          className="text-[10px] font-bold text-blue-600 hover:text-blue-800"
-                        >
-                          Selesai Produksi
-                        </button>
-                        <button 
-                          onClick={() => deleteOrder(order.id)}
-                          className="text-[10px] font-bold text-red-500 hover:text-red-700"
-                        >
-                          Hapus
-                        </button>
-                      </div>
-                      <span className="text-xs font-bold">Rp {order.total.toLocaleString()}</span>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </section>
-
-            {/* Stats Grid */}
-            <div className="grid grid-cols-2 gap-8">
-              <div className="bg-[#1e40af] p-8 rounded-[40px] text-white relative overflow-hidden">
-                <div className="relative z-10">
-                  <div className="flex items-center justify-between mb-8">
-                    <p className="text-sm font-medium opacity-80">Total Revenue</p>
-                    <button className="text-xs font-bold opacity-80 hover:opacity-100 flex items-center gap-1">
-                      All Time <Settings className="w-3 h-3" />
-                    </button>
-                  </div>
-                  <h3 className="text-5xl font-bold mb-2">Rp {orders.reduce((acc, o) => acc + o.total, 0).toLocaleString()}</h3>
-                </div>
-                {/* Abstract shape */}
-                <div className="absolute -right-8 -bottom-8 w-40 h-40 bg-white/10 rounded-full blur-3xl" />
-              </div>
-
-              <div className="bg-white p-8 rounded-[40px] shadow-sm">
-                <div className="flex items-center justify-between mb-8">
-                  <p className="text-sm font-bold text-zinc-400">Pending Orders Value</p>
-                  <button className="text-xs font-bold text-zinc-400 hover:text-zinc-900 flex items-center gap-1">
-                    Current <Settings className="w-3 h-3" />
-                  </button>
-                </div>
-                <h3 className="text-5xl font-bold">Rp {orders.filter(o => o.status !== 'Selesai').reduce((acc, o) => acc + o.total, 0).toLocaleString()}</h3>
-              </div>
-            </div>
-          </div>
-
-          {/* Right Column */}
-          <div className="col-span-4 space-y-8">
-            {/* Supply List */}
-            <div className="bg-white p-8 rounded-[40px] shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-xl font-bold">Daftar Persediaan</h3>
-                <button className="text-xs font-bold text-blue-600 hover:underline">Update</button>
-              </div>
-              <div className="space-y-6">
-                {[
-                  { label: 'Softener', value: '2 pcs left', warning: true, progress: 20 },
-                  { label: 'Detergent', value: '7 pcs left', warning: true, progress: 40 },
-                  { label: 'Plastic wrap', value: '24 m left', warning: true, progress: 60 },
-                  { label: 'Plastic bag', value: '34 pcs left', warning: false, progress: 80 },
-                  { label: 'Perfume', value: '19 ml left', warning: false, progress: 30, color: 'bg-blue-900' },
-                ].map((item) => (
-                  <div key={item.label} className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <div className="flex items-center gap-2">
-                        <span className="font-bold">{item.label}</span>
-                        {item.warning && <AlertCircle className="w-3 h-3 text-red-500" />}
-                      </div>
-                      <span className="text-zinc-400 text-xs">{item.value}</span>
-                    </div>
-                    <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                    <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
                       <div 
-                        className={cn("h-full rounded-full transition-all", item.color || (item.warning ? "bg-orange-500" : "bg-zinc-900"))} 
-                        style={{ width: `${item.progress}%` }} 
+                        className={cn(
+                          "h-full rounded-full transition-all", 
+                          item.stock <= item.minStock ? "bg-red-500" : "bg-zinc-900"
+                        )} 
+                        style={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }} 
                       />
                     </div>
+                    <button className="w-full py-2 bg-zinc-50 text-zinc-600 text-xs font-bold rounded-xl hover:bg-zinc-100 transition-all">
+                      Update Stok
+                    </button>
                   </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Status Cards */}
-            <div className="space-y-4">
-              {stats.map((status) => (
-                <div key={status.label} className="bg-white p-6 rounded-3xl shadow-sm flex items-center gap-6">
-                  <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", status.color)}>
-                    <status.icon className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <p className="text-xs font-bold text-zinc-400 mb-1">{status.label}</p>
-                    <p className="text-2xl font-bold">{status.count}</p>
-                  </div>
+                ))
+              ) : (
+                <div className="col-span-full py-20 text-center bg-zinc-50 rounded-3xl border-2 border-dashed border-zinc-200">
+                  <Droplets className="w-12 h-12 text-zinc-300 mx-auto mb-4" />
+                  <p className="text-zinc-500 font-medium">Belum ada data inventaris.</p>
                 </div>
-              ))}
+              )}
+              <button className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-3xl flex flex-col items-center justify-center p-8 text-zinc-400 hover:text-zinc-600 hover:border-zinc-300 transition-all group">
+                <div className="w-12 h-12 rounded-full bg-white border border-zinc-200 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
+                  <Plus className="w-6 h-6" />
+                </div>
+                <p className="font-bold text-sm">Tambah Bahan Baru</p>
+              </button>
             </div>
-
-            {/* Total Customer Chart */}
-            <div className="bg-white p-8 rounded-[40px] shadow-sm">
-              <div className="flex items-center justify-between mb-8">
-                <h3 className="text-xl font-bold">Total Pelanggan</h3>
-                <button className="text-xs font-bold text-zinc-400 hover:text-zinc-900 flex items-center gap-1">
-                  7 Hari Terakhir <Settings className="w-3 h-3" />
-                </button>
-              </div>
-              <div className="h-48 flex items-center justify-center">
-                <ResponsiveContainer width="100%" height="100%">
-                  <PieChart>
-                    <Pie
-                      data={pieData}
-                      innerRadius={0}
-                      outerRadius={80}
-                      paddingAngle={0}
-                      dataKey="value"
-                      startAngle={90}
-                      endAngle={450}
-                    >
-                      {pieData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                      ))}
-                    </Pie>
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <div className="mt-6 text-center">
-                <p className="text-sm font-bold">9 returning customers</p>
-                <p className="text-sm text-zinc-400">2 new customers</p>
-              </div>
-            </div>
-          </div>
+          )}
         </div>
       </main>
+
+      {/* Loading Overlay */}
+      {loading && (
+        <div className="fixed inset-0 z-[60] bg-white/50 backdrop-blur-sm flex items-center justify-center">
+          <div className="bg-white p-8 rounded-3xl shadow-xl border border-zinc-200/60 flex flex-col items-center gap-6">
+            <motion.div 
+              animate={{ 
+                scale: [1, 1.1, 1],
+                y: [0, -10, 0]
+              }}
+              transition={{ 
+                repeat: Infinity, 
+                duration: 2, 
+                ease: "easeInOut" 
+              }}
+            >
+              <svg width="60" height="60" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-zinc-900">
+                <circle cx="12" cy="12" r="10" />
+                <motion.path 
+                  d="M8 14s1.5 2 4 2 4-2 4-2" 
+                  animate={{ d: ["M8 14s1.5 2 4 2 4-2 4-2", "M8 15s1.5 3 4 3 4-3 4-3", "M8 14s1.5 2 4 2 4-2 4-2"] }}
+                  transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+                />
+                <line x1="9" y1="9" x2="9.01" y2="9" />
+                <line x1="15" y1="9" x2="15.01" y2="9" />
+              </svg>
+            </motion.div>
+            <p className="text-sm font-bold text-zinc-900">Memproses...</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

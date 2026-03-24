@@ -48,7 +48,8 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
       } else {
         const { user } = await createUserWithEmailAndPassword(auth, email, password);
         await updateProfile(user, { displayName: name });
-        await setDoc(doc(db, 'users', user.uid), {
+        
+        const userData = {
           uid: user.uid,
           email,
           name,
@@ -57,7 +58,13 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
           phone,
           city,
           approved: role === 'customer' ? true : false,
-        });
+        };
+
+        if (role === 'customer') {
+          await setDoc(doc(db, 'users', user.uid), userData);
+        } else {
+          await setDoc(doc(db, 'pending_users', user.uid), userData);
+        }
       }
       if (onAuthSuccess) onAuthSuccess();
     } catch (err: any) {

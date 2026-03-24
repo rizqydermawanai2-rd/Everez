@@ -98,7 +98,11 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
         photoURL
       };
 
-      await updateDoc(doc(db, 'users', user.uid), updatedData);
+      if (user.approved === false) {
+        await updateDoc(doc(db, 'pending_users', user.uid), updatedData);
+      } else {
+        await updateDoc(doc(db, 'users', user.uid), updatedData);
+      }
       
       // 3. Update local state and close
       onUpdate({ ...user, ...updatedData });

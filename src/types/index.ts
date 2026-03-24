@@ -1,4 +1,4 @@
-export type UserRole = 'customer' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin';
+export type UserRole = 'customer' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'vice_ceo';
 
 export interface User {
   uid: string;
@@ -10,6 +10,25 @@ export interface User {
   phone?: string;
   city?: string;
   photoURL?: string;
+  attendanceScore?: number;
+}
+
+export interface Attendance {
+  id: string;
+  userId: string;
+  date: string;
+  status: 'Hadir' | 'Izin' | 'Sakit';
+  photoUrl?: string;
+  reason?: string;
+  sickNoteUrl?: string;
+  createdAt: any;
+}
+
+export interface ProductFeature {
+  id: string;
+  enabled: boolean;
+  title: string;
+  description: string;
 }
 
 export interface Product {
@@ -18,8 +37,10 @@ export interface Product {
   price: number;
   category: string;
   image: string;
+  images?: string[];
   description: string;
   stock: number;
+  features?: ProductFeature[];
 }
 
 export interface CartItem extends Product {

@@ -52,6 +52,7 @@ async function startServer() {
       // 2. Delete from Firestore
       const db = admin.firestore();
       await db.collection('users').doc(userId).delete();
+      await db.collection('pending_users').doc(userId).delete();
       console.log(`Successfully deleted user from Firestore: ${userId}`);
       
       res.json({ success: true, message: 'User deleted from Auth and Firestore' });
@@ -64,6 +65,7 @@ async function startServer() {
         try {
           const db = admin.firestore();
           await db.collection('users').doc(userId).delete();
+          await db.collection('pending_users').doc(userId).delete();
           return res.json({ success: true, message: 'User deleted from Firestore (not found in Auth)' });
         } catch (dbError: any) {
           return res.status(500).json({ success: false, message: `Auth user not found, and Firestore delete failed: ${dbError.message}` });
