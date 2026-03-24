@@ -33,6 +33,33 @@ async function startServer() {
 
   app.use(express.json());
 
+  // Image Proxy Route to bypass ImgBB hotlinking restrictions
+  app.get('/api/proxy-image', async (req, res) => {
+    const imageUrl = req.query.url as string;
+    if (!imageUrl) return res.status(400).send('URL is required');
+    
+    try {
+      const response = await fetch(imageUrl, {
+        headers: {
+          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+          'Accept': 'image/webp,image/apng,image/*,*/*;q=0.8',
+          'Referer': new URL(imageUrl).origin
+        }
+      });
+      
+      if (!response.ok) throw new Error(`Failed to fetch image: ${response.statusText}`);
+      
+      res.setHeader('Content-Type', response.headers.get('content-type') || 'image/jpeg');
+      res.setHeader('Cache-Control', 'public, max-age=31536000');
+      
+      const buffer = await response.arrayBuffer();
+      res.send(Buffer.from(buffer));
+    } catch (error) {
+      console.error('Proxy error:', error);
+      res.status(500).send('Failed to proxy image');
+    }
+  });
+
   // API Routes
   app.delete('/api/users/:userId', async (req, res) => {
     const { userId } = req.params;

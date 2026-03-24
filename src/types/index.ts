@@ -1,4 +1,4 @@
-export type UserRole = 'customer' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'vice_ceo';
+export type UserRole = 'customer' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'vice_ceo' | 'ceo';
 
 export interface User {
   uid: string;
@@ -11,6 +11,8 @@ export interface User {
   city?: string;
   photoURL?: string;
   attendanceScore?: number;
+  employeeId?: string;
+  attitudeScore?: number;
 }
 
 export interface Attendance {

@@ -4,6 +4,7 @@ import { collection, query, limit as limitQuery, onSnapshot, where } from 'fireb
 import { Product } from '../types';
 import { motion } from 'motion/react';
 import { Plus, ShoppingCart } from 'lucide-react';
+import { getImageUrl } from '../lib/utils';
 
 interface ProductGridProps {
   limit?: number;
@@ -63,38 +64,40 @@ export default function ProductGrid({ limit, onAddToCart, onProductClick, search
           key={product.id}
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: index * 0.1 }}
-          className="group cursor-pointer"
+          transition={{ delay: index * 0.1, duration: 0.5, ease: "easeOut" }}
+          className="group cursor-pointer flex flex-col"
           onClick={() => onProductClick?.(product)}
         >
-          <div className="relative aspect-[3/4] rounded-3xl overflow-hidden bg-zinc-100">
+          <div className="relative aspect-[3/4] rounded-3xl overflow-hidden bg-zinc-100 shadow-sm group-hover:shadow-xl transition-all duration-500">
             <img 
-              src={product.image || `https://picsum.photos/seed/${product.id}/600/800`} 
+              src={getImageUrl(product.image) || `https://picsum.photos/seed/${product.id}/600/800`} 
               alt={product.name}
-              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-110"
               referrerPolicy="no-referrer"
             />
-            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-              <button 
+            <div className="absolute inset-0 bg-black/20 opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-center justify-center">
+              <motion.button 
+                whileHover={{ scale: 1.1 }}
+                whileTap={{ scale: 0.9 }}
                 onClick={(e) => {
                   e.stopPropagation();
                   onAddToCart(product);
                 }}
-                className="bg-white text-zinc-900 p-4 rounded-full shadow-lg transform translate-y-4 group-hover:translate-y-0 transition-all duration-300 hover:scale-110"
+                className="bg-white text-zinc-900 p-4 rounded-full shadow-2xl transform translate-y-8 group-hover:translate-y-0 transition-all duration-300 flex items-center justify-center"
               >
                 <ShoppingCart className="w-6 h-6" />
-              </button>
+              </motion.button>
             </div>
             {product.stock < 5 && (
-              <div className="absolute top-4 left-4 bg-red-500 text-white text-[10px] font-bold px-2 py-1 rounded-full uppercase tracking-wider">
-                Stok Terbatas
+              <div className="absolute top-4 left-4 bg-red-500 text-white text-[10px] font-bold px-3 py-1.5 rounded-full uppercase tracking-wider shadow-lg">
+                Sisa {product.stock}
               </div>
             )}
           </div>
-          <div className="mt-4 space-y-1">
-            <p className="text-xs text-zinc-400 uppercase tracking-widest font-semibold">{product.category}</p>
-            <h3 className="font-semibold text-lg">{product.name}</h3>
-            <p className="text-zinc-900 font-bold">Rp {product.price.toLocaleString('id-ID')}</p>
+          <div className="mt-5 space-y-1.5 px-1">
+            <p className="text-[11px] text-zinc-400 uppercase tracking-widest font-bold">{product.category}</p>
+            <h3 className="font-display font-semibold text-lg leading-tight line-clamp-1 group-hover:text-zinc-600 transition-colors">{product.name}</h3>
+            <p className="text-zinc-900 font-bold text-lg">Rp {product.price.toLocaleString('id-ID')}</p>
           </div>
         </motion.div>
       ))}

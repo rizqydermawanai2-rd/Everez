@@ -1,6 +1,7 @@
 import { CartItem } from '../types';
 import { motion } from 'motion/react';
 import { Trash, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
+import { getImageUrl } from '../lib/utils';
 
 interface CartProps {
   items: CartItem[];
@@ -16,38 +17,51 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
 
   if (items.length === 0) {
     return (
-      <div className="max-w-2xl mx-auto text-center py-20 space-y-6">
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.95 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="max-w-2xl mx-auto text-center py-20 space-y-6"
+      >
         <div className="w-24 h-24 bg-zinc-100 rounded-full flex items-center justify-center mx-auto">
           <ShoppingBag className="w-12 h-12 text-zinc-300" />
         </div>
-        <h2 className="text-3xl font-bold">Keranjang Kosong</h2>
+        <h2 className="text-3xl font-display font-bold">Keranjang Kosong</h2>
         <p className="text-zinc-500">Sepertinya kamu belum menambahkan produk apapun ke keranjang.</p>
-        <button 
+        <motion.button 
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={onContinue}
-          className="bg-zinc-900 text-white px-8 py-4 rounded-full font-semibold hover:bg-zinc-800 transition-all"
+          className="modern-button"
         >
           Mulai Belanja
-        </button>
-      </div>
+        </motion.button>
+      </motion.div>
     );
   }
 
   return (
     <div className="max-w-6xl mx-auto grid grid-cols-1 lg:grid-cols-3 gap-12">
       <div className="lg:col-span-2 space-y-8">
-        <h2 className="text-4xl font-bold tracking-tight">Keranjang Belanja.</h2>
+        <motion.h2 
+          initial={{ opacity: 0, x: -20 }}
+          animate={{ opacity: 1, x: 0 }}
+          className="text-4xl font-display font-bold tracking-tight"
+        >
+          Keranjang Belanja.
+        </motion.h2>
         <div className="space-y-6">
-          {items.map((item) => (
+          {items.map((item, index) => (
             <motion.div 
               key={item.id}
               layout
-              initial={{ opacity: 0, x: -20 }}
-              animate={{ opacity: 1, x: 0 }}
-              className="flex gap-6 p-6 bg-white rounded-3xl border border-zinc-100 shadow-sm"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
+              className="modern-card flex gap-6 p-6"
             >
               <div className="w-24 h-32 rounded-2xl overflow-hidden bg-zinc-50 flex-shrink-0">
                 <img 
-                  src={item.image || `https://picsum.photos/seed/${item.id}/200/300`} 
+                  src={getImageUrl(item.image) || `https://picsum.photos/seed/${item.id}/200/300`} 
                   alt={item.name} 
                   className="w-full h-full object-cover"
                   referrerPolicy="no-referrer"
@@ -56,28 +70,28 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
               <div className="flex-1 flex flex-col justify-between">
                 <div className="flex justify-between items-start">
                   <div>
-                    <p className="text-xs text-zinc-400 uppercase tracking-widest font-bold">{item.category}</p>
-                    <h3 className="text-xl font-bold">{item.name}</h3>
+                    <p className="text-xs text-zinc-400 uppercase tracking-widest font-bold mb-1">{item.category}</p>
+                    <h3 className="text-xl font-display font-bold">{item.name}</h3>
                   </div>
                   <button 
                     onClick={() => onRemove(item.id)}
-                    className="p-2 text-zinc-300 hover:text-red-500 transition-colors"
+                    className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
                   >
                     <Trash className="w-5 h-5" />
                   </button>
                 </div>
                 <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-4 bg-zinc-50 p-1 rounded-xl border border-zinc-100">
+                  <div className="flex items-center gap-4 bg-zinc-50 p-1 rounded-xl border border-zinc-200/50">
                     <button 
                       onClick={() => onUpdateQty(item.id, -1)}
-                      className="p-2 hover:bg-white rounded-lg transition-colors"
+                      className="p-2 hover:bg-white rounded-lg transition-colors shadow-sm"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
                     <span className="font-bold w-8 text-center">{item.quantity}</span>
                     <button 
                       onClick={() => onUpdateQty(item.id, 1)}
-                      className="p-2 hover:bg-white rounded-lg transition-colors"
+                      className="p-2 hover:bg-white rounded-lg transition-colors shadow-sm"
                     >
                       <Plus className="w-4 h-4" />
                     </button>
@@ -90,43 +104,49 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
         </div>
       </div>
 
-      <div className="space-y-8">
-        <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-xl shadow-zinc-200/50 space-y-6 sticky top-28">
-          <h3 className="text-2xl font-bold">Ringkasan.</h3>
+      <motion.div 
+        initial={{ opacity: 0, x: 20 }}
+        animate={{ opacity: 1, x: 0 }}
+        className="space-y-8"
+      >
+        <div className="modern-card p-8 space-y-6 sticky top-28">
+          <h3 className="text-2xl font-display font-bold">Ringkasan.</h3>
           <div className="space-y-4">
-            <div className="flex justify-between text-zinc-500">
+            <div className="flex justify-between text-zinc-500 font-medium">
               <span>Subtotal</span>
-              <span>Rp {total.toLocaleString('id-ID')}</span>
+              <span className="text-zinc-900">Rp {total.toLocaleString('id-ID')}</span>
             </div>
-            <div className="flex justify-between text-zinc-500">
+            <div className="flex justify-between text-zinc-500 font-medium">
               <span>Pengiriman</span>
-              <span className="text-emerald-500 font-medium">Gratis</span>
+              <span className="text-emerald-500 font-bold">Gratis</span>
             </div>
             <div className="pt-4 border-t border-zinc-100 flex justify-between items-center">
-              <span className="text-lg font-bold">Total</span>
-              <span className="text-2xl font-bold">Rp {total.toLocaleString('id-ID')}</span>
+              <span className="text-lg font-bold text-zinc-500">Total</span>
+              <span className="text-3xl font-display font-bold text-zinc-900">Rp {total.toLocaleString('id-ID')}</span>
             </div>
           </div>
-          <button 
+          <motion.button 
+            whileHover={{ scale: 1.02 }}
+            whileTap={{ scale: 0.98 }}
             onClick={onCheckout}
-            className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all flex items-center justify-center gap-2 group"
+            className="modern-button w-full flex items-center justify-center gap-2 group"
           >
             {isGuest ? 'Login untuk Checkout' : 'Checkout Sekarang'}
             <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-          </button>
+          </motion.button>
           {isGuest && (
-            <p className="text-[10px] text-zinc-400 text-center">
+            <p className="text-xs text-zinc-500 text-center font-medium">
               * Kamu harus memiliki akun untuk melakukan pemesanan.
             </p>
           )}
           <button 
             onClick={onContinue}
-            className="w-full text-zinc-500 font-medium hover:text-zinc-900 transition-colors"
+            className="w-full text-zinc-500 font-bold hover:text-zinc-900 transition-colors"
           >
             Lanjut Belanja
           </button>
         </div>
-      </div>
+      </motion.div>
     </div>
   );
 }

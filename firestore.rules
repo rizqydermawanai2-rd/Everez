@@ -41,6 +41,14 @@ service cloud.firestore {
     //   - paymentMethod: string (optional)
     //   - createdAt: timestamp (required) - Order timestamp
     //
+    // Collection: stock_logs
+    // Document ID: Auto-generated
+    // Fields:
+    //   - type: string (required, enum: ["in", "out"])
+    //   - quantity: number (required, must be positive)
+    //   - createdAt: timestamp (required)
+    //   - userId: string (required) - UID of the user who made the change
+    //
     // ===============================================================
 
     // Helper Functions
@@ -102,7 +110,7 @@ service cloud.firestore {
     }
 
     function isValidUrl(url) {
-      return url is string && (url.matches("^https://.*") || url.matches("^http://.*"));
+      return url is string && (url.matches("^https://.*") || url.matches("^http://.*") || url.matches("^/api/proxy-image.*"));
     }
 
     // Domain Validators
@@ -116,7 +124,7 @@ service cloud.firestore {
              (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
              (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
-             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('photoURL' in data) || data.photoURL == '' || isValidUrl(data.photoURL)) &&
              (!('attendanceScore' in data) || (data.attendanceScore is number));
     }
 
@@ -129,7 +137,7 @@ service cloud.firestore {
              (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
              (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
-             (!('photoURL' in data) || isValidUrl(data.photoURL)) &&
+             (!('photoURL' in data) || data.photoURL == '' || isValidUrl(data.photoURL)) &&
              (!('attendanceScore' in data) || (data.attendanceScore is number));
     }
 
@@ -139,7 +147,7 @@ service cloud.firestore {
              data.price is number && data.price > 0 &&
              data.category is string && data.category.size() <= 50 &&
              data.stock is number && data.stock >= 0 &&
-             (!('image' in data) || isValidUrl(data.image)) &&
+             (!('image' in data) || data.image == '' || isValidUrl(data.image)) &&
              (!('description' in data) || (data.description is string && data.description.size() <= 2000));
     }
 
@@ -251,6 +259,12 @@ service cloud.firestore {
       allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid && isValidAttendance(request.resource.data);
       allow update: if isSuperAdmin() || (isAuthenticated() && request.auth.uid == resource.data.userId && isValidAttendance(request.resource.data));
       allow delete: if isSuperAdmin();
+    }
+
+    match /stock_logs/{logId} {
+      allow read: if isProductionAdmin() || isSuperAdmin();
+      allow create: if isProductionAdmin() || isSuperAdmin();
+      allow update, delete: if isSuperAdmin();
     }
   }
 }

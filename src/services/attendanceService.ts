@@ -1,7 +1,13 @@
 import { db } from '../firebase';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 export const hasCheckedInToday = async (userId: string) => {
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists() && userSnap.data().role === 'ceo') {
+    return true; // CEO doesn't need to check in
+  }
+  
   const attendanceRef = collection(db, 'attendance');
   const today = new Date().toISOString().split('T')[0];
   const q = query(attendanceRef, where('userId', '==', userId), where('date', '==', today));
@@ -10,6 +16,12 @@ export const hasCheckedInToday = async (userId: string) => {
 };
 
 export const calculateAndUpdateAttendanceScore = async (userId: string) => {
+  const userRef = doc(db, 'users', userId);
+  const userSnap = await getDoc(userRef);
+  if (userSnap.exists() && userSnap.data().role === 'ceo') {
+    return; // CEO doesn't need attendance score
+  }
+
   const attendanceRef = collection(db, 'attendance');
   const q = query(attendanceRef, where('userId', '==', userId));
   const snapshot = await getDocs(q);
@@ -27,6 +39,5 @@ export const calculateAndUpdateAttendanceScore = async (userId: string) => {
   if (izinCount > 2) score -= (izinCount - 2) * 5;
   if (sakitCount > 2) score -= (sakitCount - 2) * 5;
   
-  const userRef = doc(db, 'users', userId);
   await updateDoc(userRef, { attendanceScore: score });
 };

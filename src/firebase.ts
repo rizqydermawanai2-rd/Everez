@@ -8,6 +8,7 @@ const app = initializeApp(firebaseConfig);
 export const db = getFirestore(app, (firebaseConfig as any).firestoreDatabaseId || '(default)');
 export const auth = getAuth(app);
 export const storage = getStorage(app);
+console.log('Firebase Storage initialized with bucket:', (firebaseConfig as any).storageBucket);
 export const googleProvider = new GoogleAuthProvider();
 
 export enum OperationType {

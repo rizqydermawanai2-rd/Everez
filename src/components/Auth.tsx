@@ -94,15 +94,15 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
             </button>
           )}
           <div className="text-center space-y-2">
-            <h1 className="text-4xl font-bold tracking-tight">Everez.</h1>
+            <h1 className="text-4xl font-display font-bold tracking-tight">Everez.</h1>
             <p className="text-zinc-500">{isLogin ? 'Selamat datang kembali' : 'Buat akun baru'}</p>
           </div>
 
-          <div className="flex p-1 bg-zinc-100 rounded-2xl">
+          <div className="flex p-1 bg-zinc-100/80 rounded-2xl backdrop-blur-sm">
             <button 
               onClick={() => setIsLogin(true)}
               className={cn(
-                "flex-1 py-2 text-sm font-medium rounded-xl transition-all",
+                "flex-1 py-2.5 text-sm font-bold rounded-xl transition-all",
                 isLogin ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"
               )}
             >
@@ -111,7 +111,7 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
             <button 
               onClick={() => setIsLogin(false)}
               className={cn(
-                "flex-1 py-2 text-sm font-medium rounded-xl transition-all",
+                "flex-1 py-2.5 text-sm font-bold rounded-xl transition-all",
                 !isLogin ? "bg-white shadow-sm text-zinc-900" : "text-zinc-500 hover:text-zinc-700"
               )}
             >
@@ -121,14 +121,16 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
 
           <div className="space-y-4">
             {(!(!isLogin && role !== 'customer')) && (
-              <button 
+              <motion.button 
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
                 onClick={handleGoogleLogin}
                 disabled={loading}
-                className="w-full py-3 border border-zinc-200 rounded-2xl font-medium flex items-center justify-center gap-3 hover:bg-zinc-50 transition-all disabled:opacity-50"
+                className="w-full py-3.5 border border-zinc-200 rounded-2xl font-bold flex items-center justify-center gap-3 hover:bg-zinc-50 transition-all disabled:opacity-50 shadow-sm"
               >
                 <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="Google" className="w-5 h-5" />
                 {isLogin ? 'Masuk dengan Google' : 'Daftar dengan Google'}
-              </button>
+              </motion.button>
             )}
 
             {(!(!isLogin && role !== 'customer')) && (
@@ -181,92 +183,94 @@ export default function Auth({ onAuthSuccess, onCancel }: AuthProps) {
                   </div>
                 )}
 
-                <div className="relative">
-                  <UserIcon className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                <div className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+                  <UserIcon className="w-5 h-5 text-zinc-400 flex-shrink-0" />
                   <input 
                     type="text" 
                     placeholder="Nama Lengkap" 
                     required 
                     value={name}
                     onChange={(e) => setName(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                    className="bg-transparent focus:outline-none w-full text-sm font-medium"
                   />
                 </div>
 
-                <div className="relative">
-                  <Phone className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                <div className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+                  <Phone className="w-5 h-5 text-zinc-400 flex-shrink-0" />
                   <input 
                     type="tel" 
                     placeholder="Nomor WA (Contoh: 08123456789)" 
                     required 
                     value={phone}
                     onChange={(e) => setPhone(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                    className="bg-transparent focus:outline-none w-full text-sm font-medium"
                   />
                 </div>
 
-                <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                <div className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+                  <MapPin className="w-5 h-5 text-zinc-400 flex-shrink-0" />
                   <input 
                     type="text" 
                     placeholder="Asal Kota" 
                     required 
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                    className="bg-transparent focus:outline-none w-full text-sm font-medium"
                   />
                 </div>
 
-                <div className="relative">
-                  <Home className="absolute left-3 top-4 w-5 h-5 text-zinc-400" />
+                <div className="flex items-start gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+                  <Home className="w-5 h-5 text-zinc-400 flex-shrink-0 mt-0.5" />
                   <textarea 
                     placeholder={role === 'customer' ? "Alamat Lengkap" : "Alamat"} 
                     required 
                     rows={3}
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
-                    className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all resize-none"
+                    className="bg-transparent focus:outline-none w-full text-sm font-medium resize-y min-h-[100px]"
                   />
                 </div>
               </div>
             )}
 
-            <div className="relative">
-              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+            <div className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+              <Mail className="w-5 h-5 text-zinc-400 flex-shrink-0" />
               <input 
                 type="email" 
                 placeholder="Email" 
                 required 
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                className="bg-transparent focus:outline-none w-full text-sm font-medium"
               />
             </div>
 
-            <div className="relative">
-              <Lock className="absolute left-3 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+            <div className="flex items-center gap-3 px-4 py-3 bg-zinc-50/50 border border-zinc-200 rounded-2xl focus-within:ring-2 focus-within:ring-zinc-900/10 focus-within:border-zinc-900/20 transition-all duration-200">
+              <Lock className="w-5 h-5 text-zinc-400 flex-shrink-0" />
               <input 
                 type="password" 
                 placeholder="Password" 
                 required 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                className="w-full pl-10 pr-4 py-3 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                className="bg-transparent focus:outline-none w-full text-sm font-medium"
               />
             </div>
 
-            {error && <p className="text-red-500 text-xs text-center">{error}</p>}
+            {error && <p className="text-red-500 text-xs text-center font-medium bg-red-50 p-3 rounded-xl">{error}</p>}
 
-            <button 
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               disabled={loading}
-              className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-semibold hover:bg-zinc-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              className="modern-button w-full flex items-center justify-center gap-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 isLogin ? 'Masuk Sekarang' : 'Buat Akun'
               )}
-            </button>
+            </motion.button>
           </form>
         </div>
       </motion.div>

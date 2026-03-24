@@ -1,13 +1,13 @@
-import React, { useState, useEffect, FormEvent, useRef } from 'react';
-import { db, storage, handleFirestoreError, OperationType } from '../../firebase';
-import { collection, query, onSnapshot, addDoc, deleteDoc, doc, updateDoc, orderBy } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import React, { useState, useEffect, FormEvent } from 'react';
+import { db, handleFirestoreError, OperationType } from '../../firebase';
+import { collection, query, onSnapshot, addDoc, deleteDoc, doc, updateDoc, orderBy, where, getDocs } from 'firebase/firestore';
 import { Product, Order, User } from '../../types';
 import { motion, AnimatePresence } from 'motion/react';
-import { Plus, Edit, Trash, Package, ShoppingBag, TrendingUp, Clock, CheckCircle, X, DollarSign, Search, Bell, LayoutDashboard, Globe, Upload, Loader2, ShieldCheck, Truck, RefreshCw, Star, UserCheck, Box } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { Plus, Edit, Trash, Package, ShoppingBag, TrendingUp, Clock, CheckCircle, X, DollarSign, Search, Bell, LayoutDashboard, Globe, Loader2, ShieldCheck, Truck, RefreshCw, Star, UserCheck, Box } from 'lucide-react';
+import { cn, getImageUrl } from '../../lib/utils';
 import AttendanceForm from './AttendanceForm';
 import { hasCheckedInToday } from '../../services/attendanceService';
+import ImageUpload from '../ImageUpload';
 
 const DEFAULT_FEATURES = [
   { id: 'warranty', title: 'Garansi 30 Hari', description: 'Jaminan kualitas produk', icon: ShieldCheck },
@@ -30,12 +30,10 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
   const [loading, setLoading] = useState(true);
   const [hasCheckedIn, setHasCheckedIn] = useState(false);
   const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
-  const [uploading, setUploading] = useState<boolean[]>([false, false, false, false]);
-  const fileInputRefs = [useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null), useRef<HTMLInputElement>(null)];
   const [newProduct, setNewProduct] = useState({
     name: '',
     price: 0,
-    category: 'Kaos',
+    category: 'T-Shirt',
     stock: 0,
     description: '',
     image: '',
@@ -121,38 +119,10 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
     setIsAddingProduct(true);
   };
 
-  const handleFileUpload = async (file: File, index: number) => {
-    if (!file) return;
-    
-    const newUploading = [...uploading];
-    newUploading[index] = true;
-    setUploading(newUploading);
-
-    try {
-      const storageRef = ref(storage, `products/${Date.now()}_${file.name}`);
-      const snapshot = await uploadBytes(storageRef, file);
-      const downloadURL = await getDownloadURL(snapshot.ref);
-
-      const updatedImages = [...newProduct.images];
-      updatedImages[index] = downloadURL;
-      setNewProduct(prev => ({ ...prev, images: updatedImages }));
-    } catch (err) {
-      console.error("Error uploading file:", err);
-      alert("Gagal mengunggah gambar. Silakan coba lagi.");
-    } finally {
-      const finalUploading = [...uploading];
-      finalUploading[index] = false;
-      setUploading(finalUploading);
-    }
-  };
-
   const removeImage = (index: number) => {
     const updatedImages = [...newProduct.images];
     updatedImages[index] = '';
     setNewProduct(prev => ({ ...prev, images: updatedImages }));
-    if (fileInputRefs[index].current) {
-      fileInputRefs[index].current!.value = '';
-    }
   };
 
   const handleDeleteProduct = async (id: string) => {
@@ -191,6 +161,26 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
 
   return (
     <div className="flex flex-col md:flex-row h-[100dvh] md:h-[85vh] bg-white md:rounded-[2rem] md:shadow-xl md:shadow-zinc-200/50 md:border border-zinc-200/60 overflow-hidden font-sans text-zinc-950">
+      {/* Attendance Check */}
+      {!hasCheckedIn && (
+        <div className="fixed inset-0 z-[100] bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-zinc-100">
+              <h3 className="text-xl font-bold">Absensi Masuk</h3>
+              <p className="text-sm text-zinc-500">Silakan lakukan absensi sebelum memulai pekerjaan.</p>
+            </div>
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <AttendanceForm 
+                user={user} 
+                onSuccess={(record) => {
+                  setHasCheckedIn(true);
+                  setAttendanceRecord(record);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="w-full md:w-64 bg-zinc-50/50 border-b md:border-b-0 md:border-r border-zinc-100 flex flex-row md:flex-col p-4 md:p-6 shrink-0 overflow-x-auto md:overflow-visible">
         <div className="flex items-center gap-3 md:mb-10 px-2 shrink-0">
@@ -214,7 +204,7 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
               key={item.id}
               onClick={() => setActiveTab(item.id)}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
+                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0 focus:outline-none",
                 activeTab === item.id 
                   ? "bg-white text-zinc-900 shadow-sm border border-zinc-200/60" 
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
@@ -283,68 +273,96 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
         </header>
 
         <div className="space-y-6">
-          {activeTab === 'dashboard' && (
-            <>
-              {/* Stats Grid */}
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                {stats.map((stat, i) => (
-                  <div key={i} className="bg-white p-4 md:p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col gap-4">
-                    <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg, stat.color)}>
-                      <stat.icon className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <p className="text-xl md:text-2xl font-bold text-zinc-900">{stat.value}</p>
-                      <p className="text-[10px] md:text-xs font-medium text-zinc-500 mt-1">{stat.label}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
-
-              <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                {/* Recent Orders */}
-                <div className="lg:col-span-12 bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col h-[500px]">
-                  <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
-                    <h3 className="text-lg font-bold">Pesanan Terbaru</h3>
-                    <button onClick={() => setActiveTab('orders')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Lihat Semua</button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 space-y-3">
-                    {orders.slice(0, 10).map(order => (
-                      <div key={order.id} className="p-4 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col gap-3">
-                        <div className="flex justify-between items-start">
-                          <div className="min-w-0 pr-2">
-                            <p className="font-bold text-sm text-zinc-900 truncate">#{order.id.slice(-6)}</p>
-                            <p className="text-xs text-zinc-500 truncate">{order.customerName || 'Customer'} • {order.items.length} Item</p>
-                          </div>
-                          <span className={cn(
-                            "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest shrink-0",
-                            order.status === 'Diproses' ? "bg-blue-50 text-blue-600" : "bg-zinc-100 text-zinc-500"
-                          )}>
-                            {order.status}
-                          </span>
-                        </div>
-                        <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 border-t border-zinc-100 gap-3">
-                          <p className="text-sm font-bold text-zinc-900">Rp {order.total.toLocaleString('id-ID')}</p>
-                          <div className="flex items-center gap-2 self-end sm:self-auto">
-                            {order.status === 'Diproses' && (
-                              <button 
-                                onClick={() => updateOrderStatus(order.id, 'Produksi')}
-                                className="px-3 py-1.5 bg-zinc-900 text-white text-xs font-bold rounded-lg hover:bg-zinc-800 transition-colors whitespace-nowrap"
-                              >
-                                Kirim ke Produksi
-                              </button>
-                            )}
-                          </div>
-                        </div>
+            {activeTab === 'dashboard' && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                style={{ willChange: 'transform' }}
+              >
+                {/* Stats Grid */}
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+                  {stats.map((stat, i) => (
+                    <motion.div 
+                      key={i} 
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: i * 0.1 }}
+                      className="bg-white p-4 md:p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col gap-4 hover:shadow-md transition-shadow"
+                    >
+                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg, stat.color)}>
+                        <stat.icon className="w-5 h-5" />
                       </div>
-                    ))}
+                      <div>
+                        <p className="text-xl md:text-2xl font-bold text-zinc-900">{stat.value}</p>
+                        <p className="text-[10px] md:text-xs font-medium text-zinc-500 mt-1">{stat.label}</p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                  {/* Recent Orders */}
+                  <div className="lg:col-span-12 bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col h-[500px]">
+                    <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
+                      <h3 className="text-lg font-bold">Pesanan Terbaru</h3>
+                      <button onClick={() => setActiveTab('orders')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Lihat Semua</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                      {orders.slice(0, 10).map((order, index) => (
+                        <motion.div 
+                          key={order.id} 
+                          initial={{ opacity: 0, x: -20 }}
+                          animate={{ opacity: 1, x: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="p-4 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col gap-3"
+                        >
+                          <div className="flex justify-between items-start">
+                            <div className="min-w-0 pr-2">
+                              <p className="font-bold text-sm text-zinc-900 truncate">#{order.id.slice(-6)}</p>
+                              <p className="text-xs text-zinc-500 truncate">{order.customerName || 'Customer'} • {order.items.length} Item</p>
+                            </div>
+                            <span className={cn(
+                              "px-2 py-1 rounded-md text-[10px] font-bold uppercase tracking-widest shrink-0",
+                              order.status === 'Diproses' ? "bg-blue-50 text-blue-600" : "bg-zinc-100 text-zinc-500"
+                            )}>
+                              {order.status}
+                            </span>
+                          </div>
+                          <div className="flex flex-col sm:flex-row sm:items-center justify-between pt-3 border-t border-zinc-100 gap-3">
+                            <p className="text-sm font-bold text-zinc-900">Rp {order.total.toLocaleString('id-ID')}</p>
+                            <div className="flex items-center gap-2 self-end sm:self-auto">
+                              {order.status === 'Diproses' && (
+                                <motion.button 
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
+                                  onClick={() => updateOrderStatus(order.id, 'Produksi')}
+                                  className="px-3 py-1.5 bg-zinc-900 text-white text-xs font-bold rounded-lg hover:bg-zinc-800 transition-colors whitespace-nowrap"
+                                >
+                                  Kirim ke Produksi
+                                </motion.button>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+                      ))}
+                    </div>
                   </div>
                 </div>
-              </div>
-            </>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'products' && (
-            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+            {activeTab === 'products' && (
+              <motion.div
+                key="products"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]"
+              >
               <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
                 <h3 className="text-lg font-bold">Manajemen Produk</h3>
                 <span className="text-xs font-bold text-zinc-500">{products.length} Produk Terdaftar</span>
@@ -362,12 +380,18 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-50">
-                    {products.map(p => (
-                      <tr key={p.id} className="hover:bg-zinc-50/50 transition-colors">
+                    {products.map((p, index) => (
+                      <motion.tr 
+                        key={p.id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="hover:bg-zinc-50/50 transition-colors"
+                      >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-4">
                             <div className="w-12 h-12 rounded-xl bg-zinc-100 overflow-hidden border border-zinc-200/60 shrink-0">
-                              <img src={p.image || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" />
+                              <img src={getImageUrl(p.image) || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             </div>
                             <div className="min-w-0">
                               <p className="font-bold text-sm text-zinc-900 truncate">{p.name}</p>
@@ -395,20 +419,27 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                         <td className="px-6 py-4 text-sm font-bold text-zinc-900 whitespace-nowrap">Rp {p.price.toLocaleString('id-ID')}</td>
                         <td className="px-6 py-4">
                           <div className="flex gap-2 justify-end">
-                            <button onClick={() => handleEditProduct(p)} className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-900 transition-colors"><Edit className="w-4 h-4" /></button>
-                            <button onClick={() => handleDeleteProduct(p.id)} className="p-2 hover:bg-red-50 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"><Trash className="w-4 h-4" /></button>
+                            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleEditProduct(p)} className="p-2 hover:bg-zinc-100 rounded-lg text-zinc-400 hover:text-zinc-900 transition-colors"><Edit className="w-4 h-4" /></motion.button>
+                            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleDeleteProduct(p.id)} className="p-2 hover:bg-red-50 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"><Trash className="w-4 h-4" /></motion.button>
                           </div>
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'orders' && (
-            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+            <motion.div
+              key="orders"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]"
+            >
               <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
                 <h3 className="text-lg font-bold">Daftar Pesanan</h3>
                 <div className="flex items-center gap-4">
@@ -427,8 +458,14 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-50">
-                    {orders.map(order => (
-                      <tr key={order.id} className="hover:bg-zinc-50/50 transition-colors">
+                    {orders.map((order, index) => (
+                      <motion.tr 
+                        key={order.id} 
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="hover:bg-zinc-50/50 transition-colors"
+                      >
                         <td className="px-6 py-4">
                           <span className="font-mono text-xs font-bold text-zinc-900">#{order.id.slice(-8)}</span>
                         </td>
@@ -453,26 +490,35 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                         <td className="px-6 py-4">
                           <div className="flex gap-2 justify-end">
                             {order.status === 'Diproses' && (
-                              <button 
+                              <motion.button 
+                                whileHover={{ scale: 1.05 }}
+                                whileTap={{ scale: 0.95 }}
                                 onClick={() => updateOrderStatus(order.id, 'Produksi')}
                                 className="px-3 py-1.5 bg-zinc-900 text-white text-[10px] font-bold rounded-lg hover:bg-zinc-800 transition-colors"
                               >
                                 Produksi
-                              </button>
+                              </motion.button>
                             )}
-                            <button onClick={() => handleDeleteOrder(order.id)} className="p-2 hover:bg-red-50 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"><Trash className="w-4 h-4" /></button>
+                            <motion.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} onClick={() => handleDeleteOrder(order.id)} className="p-2 hover:bg-red-50 rounded-lg text-zinc-400 hover:text-red-500 transition-colors"><Trash className="w-4 h-4" /></motion.button>
                           </div>
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'absensi' && (
-            <div className="max-w-md mx-auto">
+            <motion.div
+              key="absensi"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="max-w-md mx-auto"
+            >
               {hasCheckedIn ? (
                 <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm space-y-4">
                   <div className="flex items-center gap-3 text-emerald-600">
@@ -485,7 +531,7 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                     {attendanceRecord?.photoUrl && (
                       <div>
                         <p className="font-bold">Foto:</p>
-                        <img src={attendanceRecord.photoUrl} alt="Attendance" className="w-full rounded-xl mt-1" />
+                        <img src={getImageUrl(attendanceRecord.photoUrl)} alt="Attendance" className="w-full rounded-xl mt-1" referrerPolicy="no-referrer" />
                       </div>
                     )}
                     {attendanceRecord?.reason && (
@@ -509,13 +555,12 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                   checkAttendance();
                 }} />
               )}
-            </div>
+            </motion.div>
           )}
         </div>
       </main>
 
-      <AnimatePresence>
-        {isAddingProduct && (
+      {isAddingProduct && (
           <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
             <motion.div 
               initial={{ opacity: 0 }} 
@@ -561,7 +606,10 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                   onChange={e => setNewProduct({...newProduct, category: e.target.value})}
                   className="w-full p-3 md:p-4 bg-zinc-50 border border-zinc-200/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 text-sm"
                 >
-                  <option>Kaos</option>
+                  <option>T-Shirt</option>
+                  <option>Reguler</option>
+                  <option>Regular Fit</option>
+                  <option>Oversized</option>
                   <option>Hoodie</option>
                   <option>Lainnya</option>
                 </select>
@@ -575,53 +623,18 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
                   <p className="text-sm font-bold text-zinc-700">Gambar Produk (Maksimal 4)</p>
                   <div className="grid grid-cols-2 gap-4">
                     {newProduct.images.map((img, idx) => (
-                      <div key={idx} className="relative group">
-                        <div 
-                          onClick={() => !uploading[idx] && fileInputRefs[idx].current?.click()}
-                          className={cn(
-                            "aspect-square rounded-2xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-all overflow-hidden relative",
-                            img ? "border-zinc-200 bg-white" : "border-zinc-200 bg-zinc-50 hover:bg-zinc-100 hover:border-zinc-300",
-                            uploading[idx] && "opacity-50 cursor-not-allowed"
-                          )}
-                        >
-                          {uploading[idx] ? (
-                            <Loader2 className="w-6 h-6 text-zinc-400 animate-spin" />
-                          ) : img ? (
-                            <>
-                              <img src={img} className="w-full h-full object-cover" alt="Preview" />
-                              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                                <Edit className="w-6 h-6 text-white" />
-                              </div>
-                            </>
-                          ) : (
-                            <>
-                              <Upload className="w-6 h-6 text-zinc-400 mb-2" />
-                              <span className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider">
-                                {idx === 0 ? 'Utama' : `Gambar ${idx + 1}`}
-                              </span>
-                            </>
-                          )}
-                        </div>
-                        
-                        {img && !uploading[idx] && (
-                          <button 
-                            type="button"
-                            onClick={(e) => { e.stopPropagation(); removeImage(idx); }}
-                            className="absolute -top-2 -right-2 w-6 h-6 bg-red-500 text-white rounded-full flex items-center justify-center shadow-lg hover:bg-red-600 transition-colors z-10"
-                          >
-                            <X className="w-3 h-3" />
-                          </button>
-                        )}
-                        
-                        <input 
-                          type="file"
-                          ref={fileInputRefs[idx]}
-                          className="hidden"
-                          accept="image/*"
-                          onChange={(e) => {
-                            const file = e.target.files?.[0];
-                            if (file) handleFileUpload(file, idx);
+                      <div key={idx}>
+                        <ImageUpload
+                          value={img}
+                          onChange={(url) => {
+                            const updatedImages = [...newProduct.images];
+                            updatedImages[idx] = url;
+                            setNewProduct(prev => ({ ...prev, images: updatedImages }));
                           }}
+                          onRemove={() => removeImage(idx)}
+                          folder="products"
+                          label={idx === 0 ? 'Utama' : `Gambar ${idx + 1}`}
+                          aspectRatio="square"
                         />
                       </div>
                     ))}
@@ -699,7 +712,6 @@ export default function AdminSalesDashboard({ user, onViewWebsite }: AdminDashbo
             </motion.div>
           </div>
         )}
-      </AnimatePresence>
 
       {/* Attendance Overlay */}
       {!hasCheckedIn && (

@@ -149,7 +149,7 @@ export default function SuperAdminDashboard({ user }: SuperAdminDashboardProps) 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {products.map(p => (
               <div key={p.id} className="p-4 border border-zinc-100 rounded-2xl flex items-center gap-4">
-                <img src={p.image} alt={p.name} className="w-16 h-16 rounded-xl object-cover" />
+                <img src={p.image} alt={p.name} className="w-16 h-16 rounded-xl object-cover" referrerPolicy="no-referrer" />
                 <div>
                   <h4 className="font-bold">{p.name}</h4>
                   <p className="text-xs text-zinc-500">Stok: {p.stock} | Rp {p.price.toLocaleString()}</p>

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   PieChart, Pie, Cell
@@ -7,16 +7,24 @@ import {
   Users, ShoppingBag, DollarSign, 
   ArrowUpRight, ArrowDownRight, Package, Star,
   Search, Bell, Settings, LogOut, LayoutDashboard,
-  Tag, BarChart3, Megaphone, Trash2, Shield, UserPlus, AlertTriangle, RefreshCcw, Phone, MapPin, FlaskConical, Box, X, CheckCircle, Globe, Edit, Plus, Droplets, Clock, Calendar, UserCheck
+  Tag, BarChart3, Megaphone, Trash2, Shield, ShieldCheck, UserPlus, AlertTriangle, RefreshCcw, RefreshCw, Phone, MapPin, FlaskConical, Box, X, CheckCircle, Globe, Edit, Plus, Droplets, Clock, Calendar, UserCheck, Eye, Award, Truck, Loader2, Upload
 } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, getImageUrl } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
-import { db, auth } from '../../firebase';
+import { db, auth, storage } from '../../firebase';
 import { collection, getDocs, doc, deleteDoc, updateDoc, query, where, writeBatch, addDoc } from 'firebase/firestore';
-import { User, UserRole } from '../../types';
+import { User, UserRole, Product } from '../../types';
 import { handleFirestoreError, OperationType } from '../../firebase';
 import { hasCheckedInToday } from '../../services/attendanceService';
 import AttendanceForm from './AttendanceForm';
+import ImageUpload from '../ImageUpload';
+
+const DEFAULT_FEATURES = [
+  { id: 'warranty', title: 'Garansi 30 Hari', description: 'Jaminan kualitas produk', icon: ShieldCheck },
+  { id: 'shipping', title: 'Gratis Ongkir', description: 'Seluruh Indonesia', icon: Truck },
+  { id: 'return', title: 'Retur Mudah', description: 'Syarat & Ketentuan berlaku', icon: RefreshCw },
+  { id: 'quality', title: 'Premium Quality', description: 'Bahan terbaik pilihan', icon: Star },
+];
 
 const data = [
   { name: 'Mon', sales: 4000 },
@@ -36,11 +44,12 @@ const pieData = [
 const COLORS = ['#000000', '#e5e7eb'];
 
 interface SuperAdminDashboardProps {
+  user: User;
   onViewWebsite?: () => void;
 }
 
-export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboardProps) {
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'orders' | 'monitoring' | 'settings' | 'products' | 'inventory' | 'reports' | 'attendance'>('dashboard');
+export default function SuperAdminDashboard({ user, onViewWebsite }: SuperAdminDashboardProps) {
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'users' | 'orders' | 'monitoring' | 'settings' | 'products' | 'inventory' | 'reports' | 'attendance' | 'performance'>('dashboard');
   const [users, setUsers] = useState<User[]>([]);
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
@@ -55,10 +64,12 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
   const [newProduct, setNewProduct] = useState({
     name: '',
     price: 0,
-    category: 'Kaos',
+    category: 'T-Shirt',
     stock: 0,
     description: '',
-    image: ''
+    image: '',
+    images: ['', '', '', ''] as string[],
+    features: DEFAULT_FEATURES.map(f => ({ ...f, enabled: false }))
   });
   const [config, setConfig] = useState({
     shopName: 'Everez',
@@ -79,13 +90,19 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
     totalProducts: 0,
     totalAvailableStock: 0
   });
-  const [hasCheckedIn, setHasCheckedIn] = useState(true);
+  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
+  const [selectedAttendanceUser, setSelectedAttendanceUser] = useState<User | null>(null);
 
   useEffect(() => {
     const checkAttendance = async () => {
-      if (auth.currentUser) {
-        const checked = await hasCheckedInToday(auth.currentUser.uid);
-        setHasCheckedIn(checked);
+      const attendanceRef = collection(db, 'attendance');
+      const today = new Date().toISOString().split('T')[0];
+      const q = query(attendanceRef, where('userId', '==', user.uid), where('date', '==', today));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        setHasCheckedIn(true);
+        setAttendanceRecord(snapshot.docs[0].data());
       }
     };
     checkAttendance();
@@ -130,7 +147,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
       const snapshot = await getDocs(collection(db, 'stock_logs'));
       setStockLogs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
     } catch (error) {
-      console.error('Error fetching stock logs:', error);
+      handleFirestoreError(error, OperationType.LIST, 'stock_logs');
     }
   };
 
@@ -296,6 +313,24 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
     }
   };
 
+  const updateEmployeeId = async (userId: string, employeeId: string) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { employeeId });
+      setUsers(prev => prev.map(u => u.uid === userId ? { ...u, employeeId } : u));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
+  const updateAttitudeScore = async (userId: string, score: number) => {
+    try {
+      await updateDoc(doc(db, 'users', userId), { attitudeScore: score });
+      setUsers(prev => prev.map(u => u.uid === userId ? { ...u, attitudeScore: score } : u));
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `users/${userId}`);
+    }
+  };
+
   const deleteUser = async (userId: string) => {
     const userToDelete = users.find(u => u.uid === userId);
     if (!userToDelete) return;
@@ -357,18 +392,30 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
     e.preventDefault();
     setLoading(true);
     try {
+      const filteredImages = newProduct.images.filter(img => img.trim() !== '');
+      const productData = {
+        ...newProduct,
+        image: filteredImages[0] || newProduct.image,
+        images: filteredImages,
+        features: newProduct.features.map(({ icon, ...rest }: any) => rest)
+      };
+
       if (editingProduct) {
-        await updateDoc(doc(db, 'products', editingProduct.id), newProduct);
-        setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...newProduct } : p));
+        await updateDoc(doc(db, 'products', editingProduct.id), productData);
+        setProducts(prev => prev.map(p => p.id === editingProduct.id ? { ...p, ...productData } : p));
         setToast({ show: true, message: "Produk berhasil diperbarui.", type: 'success' });
       } else {
-        const docRef = await addDoc(collection(db, 'products'), newProduct);
-        setProducts(prev => [...prev, { id: docRef.id, ...newProduct }]);
+        const docRef = await addDoc(collection(db, 'products'), productData);
+        setProducts(prev => [...prev, { id: docRef.id, ...productData }]);
         setToast({ show: true, message: "Produk berhasil ditambahkan.", type: 'success' });
       }
       setIsAddingProduct(false);
       setEditingProduct(null);
-      setNewProduct({ name: '', price: 0, category: 'Kaos', stock: 0, description: '', image: '' });
+      setNewProduct({ 
+        name: '', price: 0, category: 'T-Shirt', stock: 0, description: '', image: '', 
+        images: ['', '', '', ''],
+        features: DEFAULT_FEATURES.map(f => ({ ...f, enabled: false }))
+      });
       setTimeout(() => setToast(prev => ({ ...prev, show: false })), 3000);
     } catch (error) {
       handleFirestoreError(error, editingProduct ? OperationType.UPDATE : OperationType.CREATE, 'products');
@@ -385,7 +432,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
       category: product.category,
       stock: product.stock,
       description: product.description,
-      image: product.image || ''
+      image: product.image || '',
+      images: product.images && product.images.length > 0 
+        ? [...product.images, ...Array(4 - product.images.length).fill('')].slice(0, 4)
+        : [product.image, '', '', ''],
+      features: DEFAULT_FEATURES.map(df => {
+        const existing = product.features?.find((f: any) => f.id === df.id);
+        return existing ? { ...df, ...existing } : { ...df, enabled: false };
+      })
     });
     setIsAddingProduct(true);
   };
@@ -445,6 +499,26 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
 
   return (
     <div className="flex h-[85vh] bg-white rounded-[2rem] shadow-xl shadow-zinc-200/50 border border-zinc-200/60 overflow-hidden font-sans text-zinc-950">
+      {/* Attendance Check */}
+      {!hasCheckedIn && !['ceo', 'vice_ceo', 'super_admin', 'admin_production', 'admin_packing', 'admin_sales'].includes(user.role) && (
+        <div className="fixed inset-0 z-[100] bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-zinc-100">
+              <h3 className="text-xl font-bold">Absensi Masuk</h3>
+              <p className="text-sm text-zinc-500">Silakan lakukan absensi sebelum memulai pekerjaan.</p>
+            </div>
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <AttendanceForm 
+                user={user} 
+                onSuccess={(record) => {
+                  setHasCheckedIn(true);
+                  setAttendanceRecord(record);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="w-64 bg-zinc-50/50 border-r border-zinc-100 flex flex-col p-6">
         <div className="flex items-center gap-3 mb-10 px-2">
@@ -467,21 +541,24 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
             { id: 'users', icon: Users, label: 'Kelola Pengguna' },
             { id: 'orders', icon: ShoppingBag, label: 'Semua Transaksi' },
             { id: 'attendance', icon: UserCheck, label: 'Laporan Absensi' },
+            { id: 'performance', icon: Award, label: 'Penilaian Kinerja' },
             { id: 'settings', icon: Settings, label: 'Konfigurasi' },
           ].map((item) => (
-            <button
+            <motion.button
               key={item.id}
+              whileHover={{ x: 4 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => setActiveTab(item.id as any)}
               className={cn(
                 "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
                 activeTab === item.id 
-                  ? "bg-white text-zinc-900 shadow-sm border border-zinc-200/60" 
+                  ? "bg-zinc-900 text-white shadow-md" 
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
               )}
             >
-              <item.icon className="w-4 h-4" />
+              <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
               <span className="hidden md:inline">{item.label}</span>
-            </button>
+            </motion.button>
           ))}
           
           {onViewWebsite && (
@@ -527,6 +604,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
               {activeTab === 'users' && 'Kelola Pengguna'}
               {activeTab === 'orders' && 'Semua Transaksi'}
               {activeTab === 'reports' && 'Laporan Bisnis'}
+              {activeTab === 'performance' && 'Penilaian Kinerja Pegawai'}
               {activeTab === 'settings' && 'Konfigurasi'}
             </h2>
             <p className="text-sm text-zinc-500">
@@ -537,6 +615,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
               {activeTab === 'users' && 'Kelola staff admin dan database pelanggan.'}
               {activeTab === 'orders' && 'Pantau dan kelola seluruh riwayat transaksi sistem.'}
               {activeTab === 'reports' && 'Laporan penjualan dan pergerakan stok barang.'}
+              {activeTab === 'performance' && 'Evaluasi kinerja staff berdasarkan kehadiran (80%) dan sikap (20%).'}
               {activeTab === 'settings' && 'Konfigurasi sistem dan manajemen database.'}
             </p>
           </div>
@@ -583,8 +662,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                   { label: 'Total Pelanggan', value: stats.totalCustomers, icon: Users, color: 'text-orange-600', bg: 'bg-orange-50' },
                   { label: 'Total Produk', value: stats.totalProducts, icon: Package, color: 'text-purple-600', bg: 'bg-purple-50' },
                   { label: 'Barang Tersedia', value: `${stats.totalAvailableStock} Pcs`, icon: Box, color: 'text-zinc-600', bg: 'bg-zinc-100' },
-                ].map((stat) => (
-                  <div key={stat.label} className="bg-white p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col gap-4">
+                ].map((stat, i) => (
+                  <motion.div 
+                    key={stat.label} 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: i * 0.1 }}
+                    className="bg-white p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col gap-4"
+                  >
                     <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center", stat.bg, stat.color)}>
                       <stat.icon className="w-5 h-5" />
                     </div>
@@ -592,12 +677,17 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       <p className="text-2xl font-bold text-zinc-900">{stat.value}</p>
                       <p className="text-xs font-medium text-zinc-500 mt-1">{stat.label}</p>
                     </div>
-                  </div>
+                  </motion.div>
                 ))}
               </div>
 
               <div className="grid grid-cols-3 gap-6">
-                <div className="col-span-2 bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.3 }}
+                  className="col-span-2 bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm"
+                >
                   <h3 className="text-lg font-bold mb-6">Analisis Penjualan</h3>
                   <div className="h-64">
                     <ResponsiveContainer width="100%" height="100%">
@@ -610,9 +700,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </BarChart>
                     </ResponsiveContainer>
                   </div>
-                </div>
+                </motion.div>
 
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.4 }}
+                  className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-col"
+                >
                   <h3 className="text-lg font-bold mb-4">Retensi Pelanggan</h3>
                   <div className="flex-1 min-h-[200px]">
                     <ResponsiveContainer width="100%" height="100%">
@@ -636,7 +731,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Baru</p>
                     </div>
                   </div>
-                </div>
+                </motion.div>
               </div>
             </motion.div>
           )}
@@ -647,29 +742,224 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -10 }}
-              className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm"
+              className="bg-white p-8 rounded-[2rem] border border-zinc-200/60 shadow-sm"
             >
-              <h3 className="text-lg font-bold mb-6">Laporan Absensi & Penilaian</h3>
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead className="bg-zinc-50/50 border-b border-zinc-100">
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-900">Laporan Absensi & Penilaian Kerja</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Pantau performa dan kehadiran tim secara real-time</p>
+                </div>
+                <div className="flex gap-2">
+                  <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 text-emerald-600 rounded-full text-xs font-bold border border-emerald-100">
+                    <div className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                    Live Monitoring
+                  </div>
+                </div>
+              </div>
+
+              <div className="overflow-x-auto -mx-8 px-8">
+                <table className="w-full text-left border-separate border-spacing-y-2">
+                  <thead>
                     <tr>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Nama</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Status</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Tanggal</th>
-                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Skor</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Nama</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Hadir</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Telat</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Izin</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Sakit</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Skor Kinerja</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-right">Aksi</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-zinc-50">
-                    {attendance.map(a => {
-                      const user = users.find(u => u.uid === a.userId);
+                  <tbody>
+                    {users.filter(u => u.role !== 'ceo').map((user, index) => {
+                      const userAttendance = attendance.filter(a => a.userId === user.uid);
+                      const hadir = userAttendance.filter(a => a.status === 'Hadir').length;
+                      const izin = userAttendance.filter(a => a.status === 'Izin');
+                      const sakit = userAttendance.filter(a => a.status === 'Sakit');
+                      const telatCount = userAttendance.filter(a => {
+                        if (a.status !== 'Hadir' || !a.createdAt) return false;
+                        const date = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                        const [startHour, startMinute] = config.workingHours.start.split(':').map(Number);
+                        return (date.getHours() * 60 + date.getMinutes()) > (startHour * 60 + startMinute);
+                      }).length;
+
                       return (
-                        <tr key={a.id}>
-                          <td className="px-6 py-4 text-sm font-bold">{user?.name || 'Unknown'}</td>
-                          <td className="px-6 py-4 text-sm">{a.status}</td>
-                          <td className="px-6 py-4 text-sm">{a.date}</td>
-                          <td className="px-6 py-4 text-sm font-bold">{user?.attendanceScore || 100}</td>
-                        </tr>
+                        <motion.tr 
+                          key={user.uid} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="group"
+                        >
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 rounded-l-2xl transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600">
+                                {user.name.charAt(0)}
+                              </div>
+                              <span className="text-sm font-bold text-zinc-900">{user.name}</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <span className="text-sm font-medium text-zinc-700">{hadir}</span>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <span className={cn(
+                              "text-sm font-medium",
+                              telatCount > 0 ? "text-orange-600" : "text-zinc-400"
+                            )}>{telatCount}</span>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <span className="text-sm font-medium text-zinc-700">{izin.length}</span>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <span className="text-sm font-medium text-zinc-700">{sakit.length}</span>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <div className="flex justify-center">
+                              <span className={cn(
+                                "text-[10px] font-bold px-2 py-0.5 rounded-full border",
+                                (user.attendanceScore || 100) >= 90 ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                                (user.attendanceScore || 100) >= 75 ? "bg-orange-50 text-orange-600 border-orange-100" :
+                                "bg-red-50 text-red-600 border-red-100"
+                              )}>
+                                {user.attendanceScore || 100}%
+                              </span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 rounded-r-2xl text-right transition-colors">
+                            <motion.button 
+                              whileHover={{ scale: 1.05 }}
+                              whileTap={{ scale: 0.95 }}
+                              onClick={() => setSelectedAttendanceUser(user)}
+                              className="p-2 hover:bg-white rounded-xl text-zinc-400 hover:text-zinc-900 transition-all shadow-sm hover:shadow border border-transparent hover:border-zinc-200"
+                            >
+                              <Eye className="w-4 h-4" />
+                            </motion.button>
+                          </td>
+                        </motion.tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'performance' && (
+            <motion.div
+              key="performance"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -10 }}
+              className="bg-white p-8 rounded-[2rem] border border-zinc-200/60 shadow-sm"
+            >
+              <div className="flex items-center justify-between mb-8">
+                <div>
+                  <h3 className="text-xl font-bold text-zinc-900">Penilaian Kinerja Pegawai</h3>
+                  <p className="text-sm text-zinc-500 mt-1">Evaluasi berdasarkan Kehadiran (80%) dan Sikap & Adab (20%)</p>
+                </div>
+                <div className="flex items-center gap-2 px-4 py-2 bg-zinc-900 text-white rounded-2xl text-xs font-bold">
+                  Target: 20 Hari Kerja
+                </div>
+              </div>
+
+              <div className="overflow-x-auto -mx-8 px-8">
+                <table className="w-full text-left border-separate border-spacing-y-2">
+                  <thead>
+                    <tr>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Pegawai</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Kehadiran (80%)</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Sikap & Adab (20%)</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-center">Skor Akhir</th>
+                      <th className="px-4 py-2 text-[10px] font-bold uppercase tracking-widest text-zinc-400 text-right">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {users.filter(u => u.role !== 'customer' && u.role !== 'super_admin').map((user, index) => {
+                      const userAttendance = attendance.filter(a => {
+                        const d = new Date(a.date);
+                        return a.userId === user.uid && a.status === 'Hadir' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                      });
+                      
+                      const attendanceScore = Math.min((userAttendance.length / 20) * 100, 100);
+                      const attitudeScore = user.attitudeScore || 0;
+                      const finalScore = (attendanceScore * 0.8) + (attitudeScore * 0.2);
+
+                      return (
+                        <motion.tr 
+                          key={user.uid} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="group"
+                        >
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 rounded-l-2xl transition-colors">
+                            <div className="flex items-center gap-3">
+                              <div className="w-8 h-8 rounded-full bg-zinc-200 flex items-center justify-center text-xs font-bold text-zinc-600">
+                                {user.name.charAt(0)}
+                              </div>
+                              <div>
+                                <p className="text-sm font-bold text-zinc-900">{user.name}</p>
+                                <p className="text-[10px] text-zinc-500">ID: {user.employeeId || '-'}</p>
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className="text-sm font-bold text-zinc-900">{Math.round(attendanceScore)}%</span>
+                              <span className="text-[10px] text-zinc-400">({userAttendance.length}/20 Hari)</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <div className="flex items-center justify-center gap-2">
+                              <input 
+                                type="number" 
+                                min="0" 
+                                max="100"
+                                value={attitudeScore}
+                                onChange={(e) => updateAttitudeScore(user.uid, parseInt(e.target.value) || 0)}
+                                className="w-16 px-2 py-1 bg-white border border-zinc-200 rounded-lg text-sm font-bold text-center focus:outline-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
+                              />
+                              <span className="text-xs text-zinc-400">%</span>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 text-center transition-colors">
+                            <div className="flex flex-col items-center gap-1">
+                              <span className={cn(
+                                "text-lg font-black",
+                                finalScore >= 85 ? "text-emerald-600" :
+                                finalScore >= 70 ? "text-orange-600" :
+                                "text-red-600"
+                              )}>
+                                {Math.round(finalScore)}
+                              </span>
+                              <div className="w-16 h-1 bg-zinc-200 rounded-full overflow-hidden">
+                                <motion.div 
+                                  initial={{ width: 0 }}
+                                  animate={{ width: `${finalScore}%` }}
+                                  transition={{ duration: 1, ease: "easeOut" }}
+                                  className={cn(
+                                    "h-full",
+                                    finalScore >= 85 ? "bg-emerald-500" :
+                                    finalScore >= 70 ? "bg-orange-500" :
+                                    "bg-red-500"
+                                  )}
+                                />
+                              </div>
+                            </div>
+                          </td>
+                          <td className="px-4 py-4 bg-zinc-50/50 group-hover:bg-zinc-100/50 rounded-r-2xl text-right transition-colors">
+                            <span className={cn(
+                              "text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest border",
+                              finalScore >= 85 ? "bg-emerald-50 text-emerald-600 border-emerald-100" :
+                              finalScore >= 70 ? "bg-orange-50 text-orange-600 border-orange-100" :
+                              "bg-red-50 text-red-600 border-red-100"
+                            )}>
+                              {finalScore >= 85 ? 'Excellent' :
+                               finalScore >= 70 ? 'Good' : 'Needs Improvement'}
+                            </span>
+                          </td>
+                        </motion.tr>
                       );
                     })}
                   </tbody>
@@ -688,7 +978,12 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
             >
               <div className="grid grid-cols-3 gap-6">
                 {/* Production Monitoring */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.1 }}
+                  className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm"
+                >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       <div className="p-2.5 bg-blue-50 rounded-xl text-blue-600">
@@ -713,10 +1008,15 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </div>
                     ))}
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Packing Monitoring */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
+                <motion.div 
+                  initial={{ opacity: 0, scale: 0.95 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  transition={{ delay: 0.2 }}
+                  className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm"
+                >
                   <div className="flex items-center justify-between mb-6">
                     <div className="flex items-center gap-3">
                       <div className="p-2.5 bg-orange-50 rounded-xl text-orange-600">
@@ -741,7 +1041,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </div>
                     ))}
                   </div>
-                </div>
+                </motion.div>
 
                 {/* Sales Monitoring */}
                 <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
@@ -853,7 +1153,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                           <td className="px-6 py-4">
                             <div className="flex items-center gap-4">
                               <div className="w-12 h-12 rounded-xl bg-zinc-100 overflow-hidden border border-zinc-200/60 shrink-0">
-                                <img src={p.image || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
+                                <img src={getImageUrl(p.image) || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                               </div>
                               <div className="min-w-0">
                                 <p className="font-bold text-sm text-zinc-900 truncate">{p.name}</p>
@@ -913,8 +1213,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {inventory.length > 0 ? (
-                  inventory.map((item) => (
-                    <div key={item.id} className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm hover:border-zinc-300 transition-all group">
+                  inventory.map((item, index) => (
+                    <motion.div 
+                      key={item.id} 
+                      initial={{ opacity: 0, scale: 0.95 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: index * 0.1 }}
+                      className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm hover:border-zinc-300 transition-all group"
+                    >
                       <div className="flex items-start justify-between mb-4">
                         <div className="p-3 bg-zinc-50 rounded-2xl group-hover:bg-zinc-100 transition-colors">
                           <Droplets className={cn("w-6 h-6", item.stock <= item.minStock ? "text-red-500" : "text-zinc-400")} />
@@ -939,6 +1245,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                           <motion.div 
                             initial={{ width: 0 }}
                             animate={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }}
+                            transition={{ duration: 1, ease: "easeOut" }}
                             className={cn(
                               "h-full rounded-full",
                               item.stock <= item.minStock ? "bg-red-500" : "bg-zinc-900"
@@ -947,7 +1254,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                         </div>
                         <p className="text-[10px] text-zinc-400">Minimal stok: {item.minStock} {item.unit}</p>
                       </div>
-                    </div>
+                    </motion.div>
                   ))
                 ) : (
                   <div className="col-span-full py-20 text-center bg-zinc-50 rounded-3xl border-2 border-dashed border-zinc-200">
@@ -1003,8 +1310,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-orange-50">
-                        {users.filter(u => u.role !== 'customer' && u.role !== 'super_admin' && u.approved === false).map((u) => (
-                          <tr key={u.uid} className="hover:bg-orange-50/30 transition-colors">
+                        {users.filter(u => u.role !== 'customer' && u.role !== 'super_admin' && u.approved === false).map((u, index) => (
+                          <motion.tr 
+                            key={u.uid} 
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="hover:bg-orange-50/30 transition-colors"
+                          >
                             <td className="px-6 py-3">
                               <div className="flex items-center gap-3">
                                 <div className="w-8 h-8 rounded-lg bg-orange-100 flex items-center justify-center font-bold text-orange-600 text-xs">
@@ -1025,21 +1338,25 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                             </td>
                             <td className="px-6 py-3">
                               <div className="flex gap-2 justify-end">
-                                <button 
+                                <motion.button 
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
                                   onClick={() => approveUser(u.uid)}
                                   className="px-3 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded-lg hover:bg-emerald-700 transition-all"
                                 >
                                   Setujui
-                                </button>
-                                <button 
+                                </motion.button>
+                                <motion.button 
+                                  whileHover={{ scale: 1.05 }}
+                                  whileTap={{ scale: 0.95 }}
                                   onClick={() => deleteUser(u.uid)}
                                   className="px-3 py-1.5 bg-red-50 text-red-600 text-xs font-bold rounded-lg hover:bg-red-100 transition-all flex items-center gap-1"
                                 >
                                   Tolak
-                                </button>
+                                </motion.button>
                               </div>
                             </td>
-                          </tr>
+                          </motion.tr>
                         ))}
                       </tbody>
                     </table>
@@ -1058,14 +1375,21 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                     <thead className="bg-zinc-50/50 border-b border-zinc-100">
                       <tr>
                         <th className="px-6 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Nama & Email</th>
+                        <th className="px-6 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">ID Kerja</th>
                         <th className="px-6 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Kontak & Lokasi</th>
                         <th className="px-6 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest">Role</th>
                         <th className="px-6 py-3 text-[10px] font-bold text-zinc-400 uppercase tracking-widest text-right">Aksi</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-50">
-                      {users.filter(u => u.role !== 'customer' && (u.approved !== false || u.role === 'super_admin')).map((u) => (
-                        <tr key={u.uid} className="hover:bg-zinc-50/50 transition-colors">
+                      {users.filter(u => u.role !== 'customer' && (u.approved !== false || u.role === 'super_admin')).map((u, index) => (
+                        <motion.tr 
+                          key={u.uid} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="hover:bg-zinc-50/50 transition-colors"
+                        >
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center font-bold text-zinc-600 text-xs">
@@ -1076,6 +1400,15 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                                 <p className="text-[10px] text-zinc-500">{u.email}</p>
                               </div>
                             </div>
+                          </td>
+                          <td className="px-6 py-3">
+                            <input 
+                              type="text"
+                              value={u.employeeId || ''}
+                              placeholder="Set ID..."
+                              onChange={(e) => updateEmployeeId(u.uid, e.target.value)}
+                              className="text-xs font-bold px-2 py-1 bg-zinc-100 rounded-md border-none focus:ring-2 focus:ring-zinc-900/5 w-24 transition-all"
+                            />
                           </td>
                           <td className="px-6 py-3">
                             <div className="space-y-1">
@@ -1118,7 +1451,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                               )}
                             </div>
                           </td>
-                        </tr>
+                        </motion.tr>
                       ))}
                     </tbody>
                   </table>
@@ -1142,8 +1475,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-50">
-                      {users.filter(u => u.role === 'customer').map((u) => (
-                        <tr key={u.uid} className="hover:bg-zinc-50/50 transition-colors">
+                      {users.filter(u => u.role === 'customer').map((u, index) => (
+                        <motion.tr 
+                          key={u.uid} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="hover:bg-zinc-50/50 transition-colors"
+                        >
                           <td className="px-6 py-3">
                             <div className="flex items-center gap-3">
                               <div className="w-8 h-8 rounded-lg bg-zinc-100 flex items-center justify-center font-bold text-zinc-600 text-xs">
@@ -1169,7 +1508,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                             <select 
                               value={u.role}
                               onChange={(e) => updateUserRole(u.uid, e.target.value as UserRole)}
-                              className="text-xs font-bold px-2 py-1 bg-zinc-100 rounded-md border-none focus:ring-2 focus:ring-zinc-900/5"
+                              className="text-xs font-bold px-2 py-1 bg-zinc-100 rounded-md border-none focus:ring-2 focus:ring-zinc-900/5 transition-all"
                             >
                               <option value="customer">Pelanggan</option>
                               <option value="admin_production">Admin Produksi</option>
@@ -1180,15 +1519,17 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                           </td>
                           <td className="px-6 py-3">
                             <div className="flex justify-end">
-                              <button 
+                              <motion.button 
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
                                 onClick={() => deleteUser(u.uid)}
                                 className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
-                              </button>
+                              </motion.button>
                             </div>
                           </td>
-                        </tr>
+                        </motion.tr>
                       ))}
                     </tbody>
                   </table>
@@ -1222,8 +1563,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-50">
-                      {orders.map((o) => (
-                        <tr key={o.id} className="hover:bg-zinc-50/50 transition-colors">
+                      {orders.map((o, index) => (
+                        <motion.tr 
+                          key={o.id} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="hover:bg-zinc-50/50 transition-colors"
+                        >
                           <td className="px-6 py-3 text-sm font-mono text-zinc-600">#{o.id.slice(-6)}</td>
                           <td className="px-6 py-3 text-sm font-bold">{o.customerName || 'Pelanggan'}</td>
                           <td className="px-6 py-3 text-sm font-bold">Rp {o.total.toLocaleString()}</td>
@@ -1241,15 +1588,17 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                           </td>
                           <td className="px-6 py-3">
                             <div className="flex justify-end">
-                              <button 
+                              <motion.button 
+                                whileHover={{ scale: 1.1 }}
+                                whileTap={{ scale: 0.9 }}
                                 onClick={() => deleteOrder(o.id)}
                                 className="p-1.5 text-zinc-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
                               >
                                 <Trash2 className="w-4 h-4" />
-                              </button>
+                              </motion.button>
                             </div>
                           </td>
-                        </tr>
+                        </motion.tr>
                       ))}
                     </tbody>
                   </table>
@@ -1331,14 +1680,20 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                     <div className="border-t border-zinc-100 pt-4">
                       <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Rincian Transaksi ({filteredOrders.length})</h4>
                       <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
-                        {filteredOrders.map((o) => (
-                          <div key={o.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-50/50 border border-zinc-100">
+                        {filteredOrders.map((o, index) => (
+                          <motion.div 
+                            key={o.id} 
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="flex items-center justify-between p-3 rounded-xl bg-zinc-50/50 border border-zinc-100"
+                          >
                             <div>
                               <p className="text-xs font-bold text-zinc-900">#{o.id.slice(-6)}</p>
                               <p className="text-[10px] text-zinc-500">{new Date(o.createdAt).toLocaleDateString()}</p>
                             </div>
                             <span className="text-sm font-bold text-emerald-600">+Rp {o.total.toLocaleString()}</span>
-                          </div>
+                          </motion.div>
                         ))}
                         {filteredOrders.length === 0 && <p className="text-center py-4 text-xs text-zinc-400 italic">Tidak ada transaksi pada periode ini.</p>}
                       </div>
@@ -1374,8 +1729,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                     <div className="border-t border-zinc-100 pt-4">
                       <h4 className="text-xs font-bold text-zinc-500 uppercase tracking-wider mb-3">Log Pergerakan Terperinci</h4>
                       <div className="space-y-3 max-h-[200px] overflow-y-auto pr-2">
-                        {filteredStockLogs.map((log) => (
-                          <div key={log.id} className="flex items-center justify-between p-3 rounded-xl bg-zinc-50/50 border border-zinc-100">
+                        {filteredStockLogs.map((log, index) => (
+                          <motion.div 
+                            key={log.id} 
+                            initial={{ opacity: 0, x: 20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.05 }}
+                            className="flex items-center justify-between p-3 rounded-xl bg-zinc-50/50 border border-zinc-100"
+                          >
                             <div className="flex items-center gap-3">
                               <div className={cn("p-1.5 rounded-lg", log.type === 'in' ? "bg-emerald-50 text-emerald-600" : "bg-red-50 text-red-600")}>
                                 {log.type === 'in' ? <ArrowUpRight className="w-3 h-3" /> : <ArrowDownRight className="w-3 h-3" />}
@@ -1388,7 +1749,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                             <span className={cn("text-sm font-bold", log.type === 'in' ? "text-emerald-600" : "text-red-600")}>
                               {log.type === 'in' ? '+' : '-'}{log.quantity}
                             </span>
-                          </div>
+                          </motion.div>
                         ))}
                         {filteredStockLogs.length === 0 && <p className="text-center py-4 text-xs text-zinc-400 italic">Tidak ada log pergerakan pada periode ini.</p>}
                       </div>
@@ -1428,8 +1789,14 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-zinc-50">
-                      {products.map((p) => (
-                        <tr key={p.id} className="hover:bg-zinc-50/50 transition-colors">
+                      {products.map((p, index) => (
+                        <motion.tr 
+                          key={p.id} 
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: index * 0.05 }}
+                          className="hover:bg-zinc-50/50 transition-colors"
+                        >
                           <td className="px-6 py-4">
                             <p className="text-sm font-bold text-zinc-900">{p.name}</p>
                           </td>
@@ -1448,7 +1815,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                             </div>
                           </td>
                           <td className="px-6 py-4 text-sm font-medium text-zinc-600">{p.sold || 0} Pcs</td>
-                        </tr>
+                        </motion.tr>
                       ))}
                     </tbody>
                   </table>
@@ -1522,7 +1889,9 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                           <p className="text-sm font-bold text-zinc-900">Mode Pemeliharaan</p>
                           <p className="text-[10px] text-zinc-500">Nonaktifkan akses website sementara.</p>
                         </div>
-                        <button 
+                        <motion.button 
+                          whileHover={{ scale: 1.05 }}
+                          whileTap={{ scale: 0.95 }}
                           onClick={() => setConfig({...config, maintenanceMode: !config.maintenanceMode})}
                           className={cn(
                             "w-12 h-6 rounded-full transition-all relative",
@@ -1533,7 +1902,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                             "absolute top-1 w-4 h-4 bg-white rounded-full transition-all",
                             config.maintenanceMode ? "left-7" : "left-1"
                           )} />
-                        </button>
+                        </motion.button>
                       </div>
                     </section>
 
@@ -1581,24 +1950,28 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       </h3>
                       <p className="text-[10px] text-red-500 mb-6 uppercase font-bold tracking-wider">Tindakan ini permanen</p>
                       
-                      <button 
+                      <motion.button 
+                        whileHover={{ scale: 1.02 }}
+                        whileTap={{ scale: 0.98 }}
                         onClick={resetAllData}
                         disabled={loading}
                         className="w-full flex items-center justify-center gap-2 px-6 py-3 bg-red-600 text-white rounded-xl text-sm font-bold hover:bg-red-700 transition-all disabled:opacity-50 shadow-sm"
                       >
                         <RefreshCcw className={cn("w-4 h-4", loading && "animate-spin")} />
                         Reset Semua Data
-                      </button>
+                      </motion.button>
                     </section>
                   </div>
 
-                  <button 
+                  <motion.button 
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={saveConfig}
                     disabled={loading}
                     className="w-full py-4 bg-zinc-900 text-white rounded-3xl font-bold hover:bg-zinc-800 transition-all shadow-lg shadow-zinc-200 disabled:opacity-50"
                   >
                     {loading ? 'Menyimpan...' : 'Simpan Perubahan'}
-                  </button>
+                  </motion.button>
                 </div>
               </div>
             </motion.div>
@@ -1631,7 +2004,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                     <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Nama Produk</label>
                     <input 
                       required 
-                      placeholder="Contoh: Kaos Polos Cotton Combed" 
+                      placeholder="Contoh: Kaos Polos Premium" 
                       value={newProduct.name}
                       onChange={e => setNewProduct({...newProduct, name: e.target.value})}
                       className="w-full p-3 md:p-4 bg-zinc-50 border border-zinc-200/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 text-sm" 
@@ -1639,7 +2012,7 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Harga (Rp)</label>
+                      <label className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Harga (IDR)</label>
                       <input 
                         required type="number" placeholder="0" 
                         value={newProduct.price || ''}
@@ -1664,7 +2037,10 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       onChange={e => setNewProduct({...newProduct, category: e.target.value})}
                       className="w-full p-3 md:p-4 bg-zinc-50 border border-zinc-200/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 text-sm"
                     >
-                      <option>Kaos</option>
+                      <option>T-Shirt</option>
+                      <option>Reguler</option>
+                      <option>Regular Fit</option>
+                      <option>Oversized</option>
                       <option>Hoodie</option>
                       <option>Lainnya</option>
                     </select>
@@ -1678,12 +2054,105 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                       className="w-full p-3 md:p-4 bg-zinc-50 border border-zinc-200/60 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 min-h-[100px] text-sm" 
                     />
                   </div>
-                  <button 
+
+                  <div className="space-y-3">
+                    <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Gambar Produk (Maksimal 4)</p>
+                    <div className="grid grid-cols-4 gap-4">
+                      {newProduct.images.map((img, idx) => (
+                        <div key={idx} className="space-y-2">
+                          <ImageUpload
+                            value={img}
+                            onChange={(url) => {
+                              const updatedImages = [...newProduct.images];
+                              updatedImages[idx] = url;
+                              setNewProduct(prev => ({ ...prev, images: updatedImages }));
+                            }}
+                            onRemove={() => {
+                              const updatedImages = [...newProduct.images];
+                              updatedImages[idx] = '';
+                              setNewProduct(prev => ({ ...prev, images: updatedImages }));
+                            }}
+                            folder="products"
+                            label={idx === 0 ? 'Utama' : `Gambar ${idx + 1}`}
+                            aspectRatio="square"
+                          />
+                        </div>
+                      ))}
+                    </div>
+                    <p className="text-[10px] text-zinc-400 italic">* Gambar pertama akan digunakan sebagai foto utama produk.</p>
+                  </div>
+
+                  <div className="space-y-4 pt-4 border-t border-zinc-100">
+                    <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider ml-1">Keunggulan Pelayanan</p>
+                    <div className="space-y-3">
+                      {newProduct.features.map((feature, idx) => (
+                        <div key={feature.id} className="p-4 rounded-2xl bg-zinc-50 border border-zinc-200/60 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-3">
+                              <div className={cn(
+                                "w-8 h-8 rounded-lg flex items-center justify-center",
+                                feature.enabled ? "bg-zinc-900 text-white" : "bg-zinc-200 text-zinc-400"
+                              )}>
+                                {React.createElement(DEFAULT_FEATURES.find(df => df.id === feature.id)?.icon || Star, { className: "w-4 h-4" })}
+                              </div>
+                              <span className="text-sm font-bold text-zinc-900">{feature.title}</span>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                const updatedFeatures = [...newProduct.features];
+                                updatedFeatures[idx].enabled = !updatedFeatures[idx].enabled;
+                                setNewProduct({ ...newProduct, features: updatedFeatures });
+                              }}
+                              className={cn(
+                                "w-10 h-5 rounded-full transition-colors relative",
+                                feature.enabled ? "bg-zinc-900" : "bg-zinc-300"
+                              )}
+                            >
+                              <div className={cn(
+                                "absolute top-1 w-3 h-3 bg-white rounded-full transition-all",
+                                feature.enabled ? "left-6" : "left-1"
+                              )} />
+                            </button>
+                          </div>
+                          
+                          {feature.enabled && (
+                            <div className="space-y-2 animate-in fade-in slide-in-from-top-1">
+                              <input
+                                placeholder="Judul Pelayanan"
+                                value={feature.title}
+                                onChange={e => {
+                                  const updatedFeatures = [...newProduct.features];
+                                  updatedFeatures[idx].title = e.target.value;
+                                  setNewProduct({ ...newProduct, features: updatedFeatures });
+                                }}
+                                className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-zinc-900/5"
+                              />
+                              <textarea
+                                placeholder="Detail Pelayanan"
+                                value={feature.description}
+                                onChange={e => {
+                                  const updatedFeatures = [...newProduct.features];
+                                  updatedFeatures[idx].description = e.target.value;
+                                  setNewProduct({ ...newProduct, features: updatedFeatures });
+                                }}
+                                className="w-full p-2 bg-white border border-zinc-200 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-zinc-900/5 min-h-[60px]"
+                              />
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <motion.button 
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     disabled={loading}
                     className="w-full py-3 md:py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all shadow-md disabled:opacity-50"
                   >
                     {loading ? 'Menyimpan...' : (editingProduct ? 'Simpan Perubahan' : 'Simpan Produk')}
-                  </button>
+                  </motion.button>
                 </form>
               </motion.div>
             </div>
@@ -1716,18 +2185,22 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
                   Apakah Anda yakin ingin menghapus <span className="font-bold text-zinc-900">{confirmDelete.userName}</span> secara permanen? Tindakan ini tidak dapat dibatalkan dan akan menghapus data di Auth & Firestore. Akun CEO tidak dapat dihapus.
                 </p>
                 <div className="flex gap-3">
-                  <button
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={() => setConfirmDelete({ show: false, userId: '', userName: '' })}
                     className="flex-1 px-4 py-3 bg-zinc-100 hover:bg-zinc-200 text-zinc-900 text-sm font-bold rounded-xl transition-all"
                   >
                     Batal
-                  </button>
-                  <button
+                  </motion.button>
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.98 }}
                     onClick={confirmDeleteUser}
                     className="flex-1 px-4 py-3 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded-xl transition-all shadow-sm"
                   >
                     Hapus
-                  </button>
+                  </motion.button>
                 </div>
               </motion.div>
             </div>
@@ -1768,6 +2241,180 @@ export default function SuperAdminDashboard({ onViewWebsite }: SuperAdminDashboa
             </div>
           </div>
         )}
+
+        <AnimatePresence>
+          {selectedAttendanceUser && (
+            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                onClick={() => setSelectedAttendanceUser(null)}
+                className="absolute inset-0 bg-zinc-900/40 backdrop-blur-sm"
+              />
+              <motion.div
+                initial={{ opacity: 0, scale: 0.95, y: 20 }}
+                animate={{ opacity: 1, scale: 1, y: 0 }}
+                exit={{ opacity: 0, scale: 0.95, y: 20 }}
+                className="relative w-full max-w-2xl bg-white rounded-[2.5rem] shadow-2xl border border-zinc-200 overflow-hidden"
+              >
+                <div className="p-8">
+                  <div className="flex items-center justify-between mb-8">
+                    <div className="flex items-center gap-4">
+                      <div className="w-12 h-12 rounded-2xl bg-zinc-900 flex items-center justify-center text-xl font-bold text-white">
+                        {selectedAttendanceUser.name.charAt(0)}
+                      </div>
+                      <div>
+                        <h3 className="text-xl font-bold text-zinc-900">{selectedAttendanceUser.name}</h3>
+                        <div className="flex items-center gap-3 mt-1">
+                          <p className="text-xs font-medium text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md">ID: {selectedAttendanceUser.employeeId || 'N/A'}</p>
+                          <p className="text-xs font-medium text-zinc-500 bg-zinc-100 px-2 py-0.5 rounded-md">{new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}</p>
+                        </div>
+                      </div>
+                    </div>
+                    <motion.button 
+                      whileHover={{ scale: 1.1 }}
+                      whileTap={{ scale: 0.9 }}
+                      onClick={() => setSelectedAttendanceUser(null)}
+                      className="p-2 hover:bg-zinc-100 rounded-xl text-zinc-400 hover:text-zinc-900 transition-colors"
+                    >
+                      <X className="w-5 h-5" />
+                    </motion.button>
+                  </div>
+
+                  <div className="mb-6">
+                    <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-3">Statistik Bulan Ini ({new Date().toLocaleString('id-ID', { month: 'long' })})</h4>
+                    <div className="grid grid-cols-4 gap-4">
+                      {[
+                        { 
+                          label: 'Hadir', 
+                          value: attendance.filter(a => {
+                            const d = new Date(a.date);
+                            return a.userId === selectedAttendanceUser.uid && a.status === 'Hadir' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                          }).length, 
+                          color: 'emerald' 
+                        },
+                        { 
+                          label: 'Telat', 
+                          value: attendance.filter(a => {
+                            if (a.userId !== selectedAttendanceUser.uid || a.status !== 'Hadir' || !a.createdAt) return false;
+                            const d = new Date(a.date);
+                            if (d.getMonth() !== new Date().getMonth() || d.getFullYear() !== new Date().getFullYear()) return false;
+                            const date = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                            const [startHour, startMinute] = config.workingHours.start.split(':').map(Number);
+                            return (date.getHours() * 60 + date.getMinutes()) > (startHour * 60 + startMinute);
+                          }).length, 
+                          color: 'orange' 
+                        },
+                        { 
+                          label: 'Izin', 
+                          value: attendance.filter(a => {
+                            const d = new Date(a.date);
+                            return a.userId === selectedAttendanceUser.uid && a.status === 'Izin' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                          }).length, 
+                          color: 'blue' 
+                        },
+                        { 
+                          label: 'Sakit', 
+                          value: attendance.filter(a => {
+                            const d = new Date(a.date);
+                            return a.userId === selectedAttendanceUser.uid && a.status === 'Sakit' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                          }).length, 
+                          color: 'red' 
+                        },
+                      ].map((stat, i) => (
+                        <div key={i} className={`p-4 rounded-2xl bg-${stat.color}-50 border border-${stat.color}-100`}>
+                          <p className={`text-[10px] font-bold text-${stat.color}-600 uppercase tracking-wider mb-1`}>{stat.label}</p>
+                          <p className={`text-2xl font-bold text-${stat.color}-700`}>{stat.value}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="p-6 bg-zinc-900 rounded-[2rem] text-white mb-8">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-bold">Penilaian Kinerja Bulan Ini</h4>
+                      <span className="text-xs text-zinc-400">Target: 20 Hari Kerja</span>
+                    </div>
+                    <div className="flex items-end gap-4">
+                      <div className="flex-1">
+                        <div className="h-2 bg-white/10 rounded-full overflow-hidden mb-2">
+                          <motion.div 
+                            initial={{ width: 0 }}
+                            animate={{ 
+                              width: `${Math.min((attendance.filter(a => {
+                                const d = new Date(a.date);
+                                return a.userId === selectedAttendanceUser.uid && a.status === 'Hadir' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                              }).length / 20) * 100, 100)}%` 
+                            }}
+                            className="h-full bg-white rounded-full"
+                          />
+                        </div>
+                        <div className="flex justify-between text-[10px] font-bold text-zinc-400 uppercase tracking-widest">
+                          <span>0%</span>
+                          <span>100%</span>
+                        </div>
+                      </div>
+                      <div className="text-right">
+                        <p className="text-3xl font-bold leading-none">
+                          {Math.min(Math.round((attendance.filter(a => {
+                            const d = new Date(a.date);
+                            return a.userId === selectedAttendanceUser.uid && a.status === 'Hadir' && d.getMonth() === new Date().getMonth() && d.getFullYear() === new Date().getFullYear();
+                          }).length / 20) * 100), 100)}%
+                        </p>
+                        <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mt-1">Skor Akhir</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-6">
+                    <div>
+                      <h4 className="text-xs font-bold text-zinc-400 uppercase tracking-widest mb-4">Riwayat Ketidakhadiran</h4>
+                      <div className="grid grid-cols-2 gap-3">
+                        {attendance
+                          .filter(a => a.userId === selectedAttendanceUser.uid && (a.status === 'Izin' || a.status === 'Sakit'))
+                          .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+                          .map((absent, i) => {
+                            const date = new Date(absent.date);
+                            return (
+                              <motion.div 
+                                key={i} 
+                                initial={{ opacity: 0, y: 10 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                transition={{ delay: i * 0.05 }}
+                                className="flex items-center justify-between p-3 bg-zinc-50 rounded-xl border border-zinc-100"
+                              >
+                                <div className="flex items-center gap-3">
+                                  <div className={cn(
+                                    "w-2 h-2 rounded-full",
+                                    absent.status === 'Izin' ? "bg-blue-500" : "bg-red-500"
+                                  )} />
+                                  <span className="text-sm font-medium text-zinc-900">
+                                    {date.getDate()} {date.toLocaleString('id-ID', { month: 'long' })}
+                                  </span>
+                                </div>
+                                <span className={cn(
+                                  "text-[10px] font-bold px-2 py-0.5 rounded-full uppercase",
+                                  absent.status === 'Izin' ? "bg-blue-100 text-blue-600" : "bg-red-100 text-red-600"
+                                )}>
+                                  {absent.status}
+                                </span>
+                              </motion.div>
+                            );
+                          })}
+                        {attendance.filter(a => a.userId === selectedAttendanceUser.uid && (a.status === 'Izin' || a.status === 'Sakit')).length === 0 && (
+                          <div className="col-span-2 py-8 text-center bg-zinc-50 rounded-2xl border border-dashed border-zinc-200">
+                            <p className="text-sm text-zinc-400 italic">Tidak ada riwayat ketidakhadiran</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          )}
+        </AnimatePresence>
 
         {/* Loading Overlay */}
         {loading && (

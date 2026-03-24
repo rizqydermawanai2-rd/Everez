@@ -1,6 +1,6 @@
 import { ShoppingBag, ShoppingCart, User as UserIcon, LogOut, LayoutDashboard, Package, Menu, X } from 'lucide-react';
 import { User } from '../types';
-import { cn } from '../lib/utils';
+import { cn, getImageUrl } from '../lib/utils';
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -28,9 +28,11 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
   ];
 
   return (
-    <nav className="sticky top-0 z-50 glass border-b border-zinc-100">
+    <nav className="sticky top-0 z-50 glass">
       <div className="container mx-auto px-4 h-20 flex items-center justify-between">
-        <button 
+        <motion.button 
+          whileHover={{ scale: 1.05 }}
+          whileTap={{ scale: 0.95 }}
           onClick={() => {
             if (user && user.role !== 'customer' && user.role !== 'super_admin' && user.role !== 'vice_ceo') {
               if (user.role === 'admin_production') setView('admin_production');
@@ -42,39 +44,53 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
               setView('home');
             }
           }} 
-          className="text-2xl font-bold tracking-tighter"
+          className="text-2xl font-display font-bold tracking-tighter"
         >
           Everez.
-        </button>
+        </motion.button>
 
         <div className="hidden md:flex items-center gap-8">
-          {navItems.filter(item => !item.hide).map(item => (
-            <button
+          {navItems.filter(item => !item.hide).map((item, index) => (
+            <motion.button
               key={item.id}
+              initial={{ opacity: 0, y: -10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.1 }}
               onClick={() => setView(item.id)}
               className={cn(
-                "text-sm font-medium transition-colors hover:text-zinc-900",
+                "text-sm font-medium transition-colors hover:text-zinc-900 relative",
                 currentView === item.id ? "text-zinc-900" : "text-zinc-500"
               )}
             >
               {item.label}
-            </button>
+              {currentView === item.id && (
+                <div 
+                  className="absolute -bottom-2 left-0 right-0 h-0.5 bg-zinc-900 rounded-full"
+                />
+              )}
+            </motion.button>
           ))}
         </div>
 
         <div className="flex items-center gap-4">
           {(!user || user.role === 'customer') && (
-            <button 
+            <motion.button 
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
               onClick={() => setView('cart')}
-              className="relative p-2 hover:bg-zinc-100 rounded-full transition-colors"
+              className="relative p-2.5 hover:bg-zinc-100 rounded-full transition-colors"
             >
-              <ShoppingCart className="w-6 h-6" />
+              <ShoppingCart className="w-5 h-5" />
               {cartCount > 0 && (
-                <span className="absolute top-0 right-0 bg-zinc-900 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white">
+                <motion.span 
+                  initial={{ scale: 0 }}
+                  animate={{ scale: 1 }}
+                  className="absolute top-0 right-0 bg-zinc-900 text-white text-[10px] w-5 h-5 flex items-center justify-center rounded-full border-2 border-white font-bold"
+                >
                   {cartCount}
-                </span>
+                </motion.span>
               )}
-            </button>
+            </motion.button>
           )}
           
           <div className="h-8 w-[1px] bg-zinc-200 mx-2 hidden md:block" />
@@ -88,7 +104,7 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
                 >
                   <div className="w-10 h-10 rounded-xl bg-zinc-100 overflow-hidden border border-zinc-200 flex items-center justify-center">
                     {user.photoURL ? (
-                      <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                      <img src={getImageUrl(user.photoURL)} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                     ) : (
                       <UserIcon className="w-5 h-5 text-zinc-400" />
                     )}
@@ -107,12 +123,14 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
                 </button>
               </>
             ) : (
-              <button 
+              <motion.button 
+                whileHover={{ scale: 1.05 }}
+                whileTap={{ scale: 0.95 }}
                 onClick={onLogin}
-                className="bg-zinc-900 text-white px-6 py-2 rounded-xl text-sm font-medium hover:bg-zinc-800 transition-colors"
+                className="modern-button py-2 px-5 text-sm"
               >
                 Login
-              </button>
+              </motion.button>
             )}
           </div>
 
@@ -152,7 +170,7 @@ export default function Navbar({ user, cartCount, setView, currentView, onLogout
                     >
                       <div className="w-12 h-12 rounded-xl bg-zinc-100 overflow-hidden border border-zinc-200 flex items-center justify-center">
                         {user.photoURL ? (
-                          <img src={user.photoURL} alt={user.name} className="w-full h-full object-cover" />
+                          <img src={getImageUrl(user.photoURL)} alt={user.name} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                         ) : (
                           <UserIcon className="w-6 h-6 text-zinc-400" />
                         )}

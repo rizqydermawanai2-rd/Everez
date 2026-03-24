@@ -8,11 +8,13 @@ import {
   ClipboardList, Package, Users, Plus, 
   Clock, CheckCircle2, AlertCircle, Droplets, FlaskConical, Box, Trash2, Globe
 } from 'lucide-react';
-import { cn } from '../../lib/utils';
-import { motion } from 'motion/react';
+import { cn, getImageUrl } from '../../lib/utils';
+import { motion, AnimatePresence } from 'motion/react';
 import { db, auth, handleFirestoreError, OperationType } from '../../firebase';
-import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy } from 'firebase/firestore';
-import { Order } from '../../types';
+import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, where, getDocs } from 'firebase/firestore';
+import { Order, User } from '../../types';
+import AttendanceForm from './AttendanceForm';
+import { hasCheckedInToday } from '../../services/attendanceService';
 
 const pieData = [
   { name: 'Returning', value: 9 },
@@ -22,17 +24,32 @@ const pieData = [
 const COLORS = ['#09090b', '#e4e4e7'];
 
 interface AdminProductionDashboardProps {
+  user: User;
   onViewWebsite?: () => void;
 }
 
-export default function AdminProductionDashboard({ onViewWebsite }: AdminProductionDashboardProps) {
+export default function AdminProductionDashboard({ user, onViewWebsite }: AdminProductionDashboardProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [inventory, setInventory] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
 
   useEffect(() => {
+    const checkAttendance = async () => {
+      const attendanceRef = collection(db, 'attendance');
+      const today = new Date().toISOString().split('T')[0];
+      const q = query(attendanceRef, where('userId', '==', user.uid), where('date', '==', today));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        setHasCheckedIn(true);
+        setAttendanceRecord(snapshot.docs[0].data());
+      }
+    };
+    checkAttendance();
+
     const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
       setOrders(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order)));
       setLoading(false);
@@ -91,6 +108,26 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
 
   return (
     <div className="flex flex-col md:flex-row h-[100dvh] md:h-[85vh] bg-white md:rounded-[2rem] md:shadow-xl md:shadow-zinc-200/50 md:border border-zinc-200/60 overflow-hidden font-sans text-zinc-950">
+      {/* Attendance Check */}
+      {!hasCheckedIn && !['ceo', 'vice_ceo', 'super_admin', 'admin_production', 'admin_packing', 'admin_sales'].includes(user.role) && (
+        <div className="fixed inset-0 z-[100] bg-zinc-900/40 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="w-full max-w-lg bg-white rounded-3xl shadow-2xl overflow-hidden">
+            <div className="p-6 border-b border-zinc-100">
+              <h3 className="text-xl font-bold">Absensi Masuk</h3>
+              <p className="text-sm text-zinc-500">Silakan lakukan absensi sebelum memulai pekerjaan.</p>
+            </div>
+            <div className="p-6 max-h-[70vh] overflow-y-auto">
+              <AttendanceForm 
+                user={user} 
+                onSuccess={(record) => {
+                  setHasCheckedIn(true);
+                  setAttendanceRecord(record);
+                }} 
+              />
+            </div>
+          </div>
+        </div>
+      )}
       {/* Sidebar */}
       <aside className="w-full md:w-64 bg-zinc-50/50 border-b md:border-b-0 md:border-r border-zinc-100 flex flex-row md:flex-col p-4 md:p-6 shrink-0 overflow-x-auto md:overflow-visible">
         <div className="flex items-center gap-3 md:mb-10 px-2 shrink-0">
@@ -110,19 +147,21 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
             { id: 'products', icon: Package, label: 'Katalog Produk' },
             { id: 'inventory', icon: Droplets, label: 'Stok Bahan' },
           ].map((item) => (
-            <button
+            <motion.button
               key={item.id}
+              whileHover={{ x: 4 }}
+              whileTap={{ scale: 0.98 }}
               onClick={() => setActiveTab(item.id)}
               className={cn(
                 "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
                 activeTab === item.id 
-                  ? "bg-white text-zinc-900 shadow-sm border border-zinc-200/60" 
+                  ? "bg-zinc-900 text-white shadow-md" 
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
               )}
             >
-              <item.icon className="w-4 h-4" />
+              <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
               <span className="hidden md:inline">{item.label}</span>
-            </button>
+            </motion.button>
           ))}
           
           {onViewWebsite && (
@@ -174,126 +213,155 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
         </header>
 
         <div className="space-y-6">
-          {activeTab === 'dashboard' && (
-            <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-              {/* Left Column */}
-              <div className="lg:col-span-8 space-y-6">
-                {/* Stats Grid */}
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                  {stats.map((status) => (
-                    <div key={status.label} className="bg-white p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-row sm:flex-col items-center sm:items-start gap-4">
-                      <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", status.bg, status.color)}>
-                        <status.icon className="w-5 h-5" />
-                      </div>
-                      <div>
-                        <p className="text-2xl sm:text-3xl font-bold text-zinc-900">{status.count}</p>
-                        <p className="text-xs font-medium text-zinc-500 mt-1">{status.label}</p>
+          <AnimatePresence mode="wait">
+            {activeTab === 'dashboard' && (
+              <motion.div
+                key="dashboard"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="grid grid-cols-1 lg:grid-cols-12 gap-6"
+              >
+                {/* Left Column */}
+                <div className="lg:col-span-8 space-y-6">
+                  {/* Stats Grid */}
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                    {stats.map((status, index) => (
+                      <motion.div 
+                        key={status.label}
+                        initial={{ opacity: 0, y: 20 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.1 }}
+                        className="bg-white p-5 rounded-3xl border border-zinc-200/60 shadow-sm flex flex-row sm:flex-col items-center sm:items-start gap-4 hover:shadow-md transition-shadow"
+                      >
+                        <div className={cn("w-10 h-10 rounded-xl flex items-center justify-center shrink-0", status.bg, status.color)}>
+                          <status.icon className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <p className="text-2xl sm:text-3xl font-bold text-zinc-900">{status.count}</p>
+                          <p className="text-xs font-medium text-zinc-500 mt-1">{status.label}</p>
+                        </div>
+                      </motion.div>
+                    ))}
+                  </div>
+
+                  {/* Quick Orders Section */}
+                  <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col h-[400px]">
+                    <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
+                      <h3 className="text-lg font-bold">Antrean Produksi Terbaru</h3>
+                      <button onClick={() => setActiveTab('orders')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Lihat Semua</button>
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-4 md:p-6">
+                      <div className="space-y-4">
+                        {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).slice(0, 5).map((order, index) => (
+                          <motion.div 
+                            key={order.id}
+                            initial={{ opacity: 0, x: -20 }}
+                            animate={{ opacity: 1, x: 0 }}
+                            transition={{ delay: index * 0.1 }}
+                            className="group p-4 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+                          >
+                            <div className="flex items-center gap-4">
+                              <div className="w-12 h-12 bg-white rounded-xl border border-zinc-200/60 flex items-center justify-center shadow-sm shrink-0">
+                                <Package className="w-5 h-5 text-zinc-400" />
+                              </div>
+                              <div className="min-w-0">
+                                <p className="font-bold text-sm text-zinc-900 truncate">#{order.id.slice(-6)}</p>
+                                <p className="text-xs text-zinc-500 truncate">{order.customerName || 'Customer'} • {order.items.length} Items</p>
+                              </div>
+                            </div>
+                            <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
+                              <span className={cn(
+                                "px-3 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider shrink-0",
+                                order.status === 'Diproses' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
+                              )}>
+                                {order.status}
+                              </span>
+                            </div>
+                          </motion.div>
+                        ))}
                       </div>
                     </div>
-                  ))}
+                  </div>
                 </div>
 
-                {/* Quick Orders Section */}
-                <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col h-[400px]">
-                  <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
-                    <h3 className="text-lg font-bold">Antrean Produksi Terbaru</h3>
-                    <button onClick={() => setActiveTab('orders')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Lihat Semua</button>
-                  </div>
-                  <div className="flex-1 overflow-y-auto p-4 md:p-6">
-                    <div className="space-y-4">
-                      {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).slice(0, 5).map((order) => (
-                        <div key={order.id} className="group p-4 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                          <div className="flex items-center gap-4">
-                            <div className="w-12 h-12 bg-white rounded-xl border border-zinc-200/60 flex items-center justify-center shadow-sm shrink-0">
-                              <Package className="w-5 h-5 text-zinc-400" />
-                            </div>
-                            <div className="min-w-0">
-                              <p className="font-bold text-sm text-zinc-900 truncate">#{order.id.slice(-6)}</p>
-                              <p className="text-xs text-zinc-500 truncate">{order.customerName || 'Customer'} • {order.items.length} Items</p>
-                            </div>
+                {/* Right Column */}
+                <div className="lg:col-span-4 space-y-6">
+                  {/* Supply Summary */}
+                  <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm hover:shadow-md transition-shadow">
+                    <div className="flex items-center justify-between mb-6">
+                      <h3 className="text-lg font-bold">Stok Kritis</h3>
+                      <button onClick={() => setActiveTab('inventory')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Detail</button>
+                    </div>
+                    <div className="space-y-5">
+                      {inventory.filter(item => item.stock <= item.minStock).slice(0, 3).map((item) => (
+                        <div key={item.id} className="space-y-2">
+                          <div className="flex items-center justify-between text-sm">
+                            <span className="font-medium text-zinc-700">{item.name}</span>
+                            <span className="text-zinc-500 font-mono text-xs">{item.stock} {item.unit}</span>
                           </div>
-                          <div className="flex items-center justify-between sm:justify-end gap-4 w-full sm:w-auto">
-                            <span className={cn(
-                              "px-3 py-1 text-[10px] font-bold rounded-full uppercase tracking-wider shrink-0",
-                              order.status === 'Diproses' ? 'bg-blue-50 text-blue-600' : 'bg-orange-50 text-orange-600'
-                            )}>
-                              {order.status}
-                            </span>
+                          <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
+                            <motion.div 
+                              initial={{ width: 0 }}
+                              animate={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }}
+                              transition={{ duration: 1, ease: "easeOut" }}
+                              className="h-full rounded-full bg-red-500" 
+                            />
                           </div>
                         </div>
                       ))}
+                      {inventory.filter(item => item.stock <= item.minStock).length === 0 && (
+                        <p className="text-xs text-zinc-400 italic">Semua stok aman.</p>
+                      )}
                     </div>
                   </div>
-                </div>
-              </div>
 
-              {/* Right Column */}
-              <div className="lg:col-span-4 space-y-6">
-                {/* Supply Summary */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
-                  <div className="flex items-center justify-between mb-6">
-                    <h3 className="text-lg font-bold">Stok Kritis</h3>
-                    <button onClick={() => setActiveTab('inventory')} className="text-xs font-bold text-zinc-500 hover:text-zinc-900">Detail</button>
-                  </div>
-                  <div className="space-y-5">
-                    {inventory.filter(item => item.stock <= item.minStock).slice(0, 3).map((item) => (
-                      <div key={item.id} className="space-y-2">
-                        <div className="flex items-center justify-between text-sm">
-                          <span className="font-medium text-zinc-700">{item.name}</span>
-                          <span className="text-zinc-500 font-mono text-xs">{item.stock} {item.unit}</span>
-                        </div>
-                        <div className="h-1.5 bg-zinc-100 rounded-full overflow-hidden">
-                          <div 
-                            className="h-full rounded-full transition-all bg-red-500" 
-                            style={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }} 
-                          />
-                        </div>
+                  {/* Total Customer Chart */}
+                  <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm hover:shadow-md transition-shadow">
+                    <h3 className="text-lg font-bold mb-6">Tipe Pesanan</h3>
+                    <div className="h-40 flex items-center justify-center">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <PieChart>
+                          <Pie
+                            data={pieData}
+                            innerRadius={40}
+                            outerRadius={60}
+                            paddingAngle={5}
+                            dataKey="value"
+                          >
+                            {pieData.map((entry, index) => (
+                              <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+                            ))}
+                          </Pie>
+                          <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
+                        </PieChart>
+                      </ResponsiveContainer>
+                    </div>
+                    <div className="flex justify-center gap-6 mt-2">
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-zinc-900" />
+                        <span className="text-xs text-zinc-500 font-medium">Custom (9)</span>
                       </div>
-                    ))}
-                    {inventory.filter(item => item.stock <= item.minStock).length === 0 && (
-                      <p className="text-xs text-zinc-400 italic">Semua stok aman.</p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Total Customer Chart */}
-                <div className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm">
-                  <h3 className="text-lg font-bold mb-6">Tipe Pesanan</h3>
-                  <div className="h-40 flex items-center justify-center">
-                    <ResponsiveContainer width="100%" height="100%">
-                      <PieChart>
-                        <Pie
-                          data={pieData}
-                          innerRadius={40}
-                          outerRadius={60}
-                          paddingAngle={5}
-                          dataKey="value"
-                        >
-                          {pieData.map((entry, index) => (
-                            <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                          ))}
-                        </Pie>
-                        <Tooltip contentStyle={{ borderRadius: '12px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }} />
-                      </PieChart>
-                    </ResponsiveContainer>
-                  </div>
-                  <div className="flex justify-center gap-6 mt-2">
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-zinc-900" />
-                      <span className="text-xs text-zinc-500 font-medium">Custom (9)</span>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <div className="w-3 h-3 rounded-full bg-zinc-200" />
-                      <span className="text-xs text-zinc-500 font-medium">Ready (2)</span>
+                      <div className="flex items-center gap-2">
+                        <div className="w-3 h-3 rounded-full bg-zinc-200" />
+                        <span className="text-xs text-zinc-500 font-medium">Ready (2)</span>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            </div>
-          )}
+              </motion.div>
+            )}
 
-          {activeTab === 'orders' && (
-            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden">
+            {activeTab === 'orders' && (
+              <motion.div
+                key="orders"
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -20 }}
+                transition={{ duration: 0.3 }}
+                className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden"
+              >
               <div className="p-6 border-b border-zinc-100 flex items-center justify-between">
                 <h3 className="text-xl font-bold">Daftar Antrean Produksi</h3>
                 <div className="flex gap-2">
@@ -307,8 +375,14 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
               </div>
               <div className="p-6">
                 <div className="space-y-4">
-                  {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).map((order) => (
-                    <div key={order.id} className="group p-6 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col md:flex-row md:items-center justify-between gap-6">
+                  {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).map((order, index) => (
+                    <motion.div 
+                      key={order.id}
+                      initial={{ opacity: 0, y: 20 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: index * 0.1 }}
+                      className="group p-6 rounded-2xl border border-zinc-100 hover:border-zinc-300 hover:shadow-md transition-all bg-zinc-50/50 hover:bg-white flex flex-col md:flex-row md:items-center justify-between gap-6"
+                    >
                       <div className="flex items-center gap-6">
                         <div className="w-14 h-14 bg-white rounded-2xl border border-zinc-200/60 flex items-center justify-center shadow-sm shrink-0">
                           <Package className="w-6 h-6 text-zinc-400" />
@@ -337,38 +411,53 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
 
                       <div className="flex items-center gap-3">
                         {order.status === 'Diproses' && (
-                          <button 
+                          <motion.button 
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => updateStatus(order.id, 'Produksi')}
                             className="flex-1 md:flex-none px-6 py-2.5 bg-zinc-900 text-white text-sm font-bold rounded-xl hover:bg-zinc-800 transition-all shadow-sm"
                           >
                             Mulai Produksi
-                          </button>
+                          </motion.button>
                         )}
                         {order.status === 'Produksi' && (
-                          <button 
+                          <motion.button 
+                            whileHover={{ scale: 1.05 }}
+                            whileTap={{ scale: 0.95 }}
                             onClick={() => updateStatus(order.id, 'Packing')}
                             className="flex-1 md:flex-none px-6 py-2.5 bg-emerald-600 text-white text-sm font-bold rounded-xl hover:bg-emerald-700 transition-all shadow-sm"
                           >
                             Selesai Produksi
-                          </button>
+                          </motion.button>
                         )}
                       </div>
-                    </div>
+                    </motion.div>
                   ))}
                   {orders.filter(o => ['Diproses', 'Produksi'].includes(o.status)).length === 0 && (
-                    <div className="text-center py-20 text-zinc-400">
+                    <motion.div 
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      className="text-center py-20 text-zinc-400"
+                    >
                       <CheckCircle2 className="w-16 h-16 mx-auto mb-4 opacity-20" />
                       <p className="text-lg font-bold text-zinc-900">Antrean Kosong</p>
                       <p className="text-sm">Semua pesanan telah diproses atau belum ada pesanan baru.</p>
-                    </div>
+                    </motion.div>
                   )}
                 </div>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'products' && (
-            <div className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]">
+            <motion.div
+              key="products"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="bg-white rounded-3xl border border-zinc-200/60 shadow-sm overflow-hidden flex flex-col min-h-[500px]"
+            >
               <div className="p-4 md:p-6 border-b border-zinc-100 flex items-center justify-between shrink-0">
                 <h3 className="text-lg font-bold">Katalog Produk & Status Stok</h3>
                 <div className="flex items-center gap-4">
@@ -397,12 +486,18 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-zinc-50">
-                    {products.map(p => (
-                      <tr key={p.id} className="hover:bg-zinc-50/50 transition-colors">
+                    {products.map((p, index) => (
+                      <motion.tr 
+                        key={p.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ delay: index * 0.05 }}
+                        className="hover:bg-zinc-50/50 transition-colors"
+                      >
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-4">
                             <div className="w-10 h-10 rounded-lg bg-zinc-100 overflow-hidden border border-zinc-200/60 shrink-0">
-                              <img src={p.image || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" />
+                              <img src={getImageUrl(p.image) || `https://picsum.photos/seed/${p.id}/100/100`} className="w-full h-full object-cover" referrerPolicy="no-referrer" />
                             </div>
                             <p className="font-bold text-sm text-zinc-900">{p.name}</p>
                           </div>
@@ -424,19 +519,32 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
                             </span>
                           </div>
                         </td>
-                      </tr>
+                      </motion.tr>
                     ))}
                   </tbody>
                 </table>
               </div>
-            </div>
+            </motion.div>
           )}
 
           {activeTab === 'inventory' && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <motion.div
+              key="inventory"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+            >
               {inventory.length > 0 ? (
-                inventory.map((item) => (
-                  <div key={item.id} className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm space-y-4">
+                inventory.map((item, index) => (
+                  <motion.div 
+                    key={item.id}
+                    initial={{ opacity: 0, scale: 0.95 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: index * 0.1 }}
+                    className="bg-white p-6 rounded-3xl border border-zinc-200/60 shadow-sm space-y-4 hover:shadow-md transition-shadow"
+                  >
                     <div className="flex items-start justify-between">
                       <div>
                         <p className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest mb-1">{item.category}</p>
@@ -455,18 +563,24 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
                       </p>
                     </div>
                     <div className="h-2 bg-zinc-100 rounded-full overflow-hidden">
-                      <div 
+                      <motion.div 
+                        initial={{ width: 0 }}
+                        animate={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }}
+                        transition={{ duration: 1, ease: "easeOut" }}
                         className={cn(
-                          "h-full rounded-full transition-all", 
+                          "h-full rounded-full", 
                           item.stock <= item.minStock ? "bg-red-500" : "bg-zinc-900"
                         )} 
-                        style={{ width: `${Math.min((item.stock / (item.minStock * 2)) * 100, 100)}%` }} 
                       />
                     </div>
-                    <button className="w-full py-2 bg-zinc-50 text-zinc-600 text-xs font-bold rounded-xl hover:bg-zinc-100 transition-all">
+                    <motion.button 
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      className="w-full py-2 bg-zinc-50 text-zinc-600 text-xs font-bold rounded-xl hover:bg-zinc-100 transition-all"
+                    >
                       Update Stok
-                    </button>
-                  </div>
+                    </motion.button>
+                  </motion.div>
                 ))
               ) : (
                 <div className="col-span-full py-20 text-center bg-zinc-50 rounded-3xl border-2 border-dashed border-zinc-200">
@@ -474,14 +588,19 @@ export default function AdminProductionDashboard({ onViewWebsite }: AdminProduct
                   <p className="text-zinc-500 font-medium">Belum ada data inventaris.</p>
                 </div>
               )}
-              <button className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-3xl flex flex-col items-center justify-center p-8 text-zinc-400 hover:text-zinc-600 hover:border-zinc-300 transition-all group">
+              <motion.button 
+                whileHover={{ scale: 1.02 }}
+                whileTap={{ scale: 0.98 }}
+                className="bg-zinc-50 border-2 border-dashed border-zinc-200 rounded-3xl flex flex-col items-center justify-center p-8 text-zinc-400 hover:text-zinc-600 hover:border-zinc-300 transition-all group"
+              >
                 <div className="w-12 h-12 rounded-full bg-white border border-zinc-200 flex items-center justify-center mb-3 group-hover:scale-110 transition-transform">
                   <Plus className="w-6 h-6" />
                 </div>
                 <p className="font-bold text-sm">Tambah Bahan Baru</p>
-              </button>
-            </div>
+              </motion.button>
+            </motion.div>
           )}
+          </AnimatePresence>
         </div>
       </main>
 

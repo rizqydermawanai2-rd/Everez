@@ -42,12 +42,16 @@ export default function Checkout({ items, user, onSuccess, onCancel }: CheckoutP
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-12">
+    <motion.div 
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="max-w-4xl mx-auto space-y-12"
+    >
       <div className="flex items-center gap-4">
         <button onClick={onCancel} className="p-2 hover:bg-white rounded-full transition-colors">
           <ArrowLeft className="w-6 h-6" />
         </button>
-        <h2 className="text-4xl font-bold tracking-tight">Checkout.</h2>
+        <h2 className="text-4xl font-display font-bold tracking-tight">Checkout.</h2>
       </div>
 
       <form onSubmit={handlePlaceOrder} className="grid grid-cols-1 md:grid-cols-2 gap-12">
@@ -62,7 +66,7 @@ export default function Checkout({ items, user, onSuccess, onCancel }: CheckoutP
               placeholder="Masukkan alamat lengkap pengiriman..."
               value={address}
               onChange={(e) => setAddress(e.target.value)}
-              className="w-full p-6 bg-white border border-zinc-200 rounded-3xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 min-h-[150px]"
+              className="modern-input min-h-[150px] resize-y"
             />
           </section>
 
@@ -73,54 +77,58 @@ export default function Checkout({ items, user, onSuccess, onCancel }: CheckoutP
             </div>
             <div className="grid grid-cols-2 gap-4">
               {['Transfer Bank', 'E-Wallet', 'COD'].map((method) => (
-                <button
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
                   key={method}
                   type="button"
                   onClick={() => setPaymentMethod(method)}
                   className={`p-4 rounded-2xl border text-sm font-bold transition-all ${
                     paymentMethod === method 
-                      ? 'bg-zinc-900 border-zinc-900 text-white shadow-lg' 
-                      : 'bg-white border-zinc-100 text-zinc-500 hover:border-zinc-300'
+                      ? 'bg-zinc-900 border-zinc-900 text-white shadow-lg shadow-zinc-900/20' 
+                      : 'bg-white border-zinc-200 text-zinc-500 hover:border-zinc-300 hover:bg-zinc-50'
                   }`}
                 >
                   {method}
-                </button>
+                </motion.button>
               ))}
             </div>
           </section>
         </div>
 
         <div className="space-y-8">
-          <div className="bg-white p-8 rounded-3xl border border-zinc-100 shadow-xl shadow-zinc-200/50 space-y-6">
-            <h3 className="text-2xl font-bold">Ringkasan Pesanan.</h3>
-            <div className="space-y-4 max-h-60 overflow-y-auto pr-2">
+          <div className="modern-card p-8 space-y-6">
+            <h3 className="text-2xl font-display font-bold">Ringkasan Pesanan.</h3>
+            <div className="space-y-4 max-h-60 overflow-y-auto pr-2 custom-scrollbar">
               {items.map((item) => (
                 <div key={item.id} className="flex justify-between items-center">
                   <div className="flex items-center gap-3">
-                    <span className="text-zinc-400 font-bold text-xs">{item.quantity}x</span>
-                    <span className="font-medium">{item.name}</span>
+                    <span className="text-zinc-400 font-bold text-xs bg-zinc-100 px-2 py-1 rounded-md">{item.quantity}x</span>
+                    <span className="font-medium text-zinc-700">{item.name}</span>
                   </div>
-                  <span className="font-bold">Rp {(item.price * item.quantity).toLocaleString('id-ID')}</span>
+                  <span className="font-bold text-zinc-900">Rp {(item.price * item.quantity).toLocaleString('id-ID')}</span>
                 </div>
               ))}
             </div>
             <div className="pt-6 border-t border-zinc-100 space-y-4">
-              <div className="flex justify-between text-zinc-500">
+              <div className="flex justify-between text-zinc-500 font-medium">
                 <span>Subtotal</span>
-                <span>Rp {total.toLocaleString('id-ID')}</span>
+                <span className="text-zinc-900">Rp {total.toLocaleString('id-ID')}</span>
               </div>
-              <div className="flex justify-between text-zinc-500">
+              <div className="flex justify-between text-zinc-500 font-medium">
                 <span>Biaya Layanan</span>
-                <span>Rp 2.000</span>
+                <span className="text-zinc-900">Rp 2.000</span>
               </div>
               <div className="flex justify-between items-center pt-4">
-                <span className="text-lg font-bold">Total Bayar</span>
-                <span className="text-2xl font-bold">Rp {(total + 2000).toLocaleString('id-ID')}</span>
+                <span className="text-lg font-bold text-zinc-500">Total Bayar</span>
+                <span className="text-3xl font-display font-bold text-zinc-900">Rp {(total + 2000).toLocaleString('id-ID')}</span>
               </div>
             </div>
-            <button 
+            <motion.button 
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
               disabled={loading}
-              className="w-full py-4 bg-zinc-900 text-white rounded-2xl font-bold hover:bg-zinc-800 transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              className="modern-button w-full flex items-center justify-center gap-2"
             >
               {loading ? (
                 <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
@@ -130,10 +138,10 @@ export default function Checkout({ items, user, onSuccess, onCancel }: CheckoutP
                   Buat Pesanan
                 </>
               )}
-            </button>
+            </motion.button>
           </div>
         </div>
       </form>
-    </div>
+    </motion.div>
   );
 }

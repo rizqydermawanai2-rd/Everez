@@ -1,123 +1,61 @@
-import React, { useState, useRef, useEffect } from 'react';
-import { db, storage, handleFirestoreError, OperationType } from '../../firebase';
+import React, { useState, useEffect } from 'react';
+import { db, handleFirestoreError, OperationType } from '../../firebase';
 import { collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
-import { Camera, FileText, Upload, Loader2, X } from 'lucide-react';
 import { User } from '../../types';
 import { calculateAndUpdateAttendanceScore, hasCheckedInToday } from '../../services/attendanceService';
+import ImageUpload from '../ImageUpload';
+import { Loader2 } from 'lucide-react';
 
 interface AttendanceFormProps {
   user: User;
-  onSuccess?: () => void;
+  onSuccess?: (record?: any) => void;
 }
 
 export default function AttendanceForm({ user, onSuccess }: AttendanceFormProps) {
   const [status, setStatus] = useState<'Hadir' | 'Izin' | 'Sakit'>('Hadir');
-  const [photo, setPhoto] = useState<File | null>(null);
-  const [sickNote, setSickNote] = useState<File | null>(null);
+  const [photoUrl, setPhotoUrl] = useState('');
+  const [sickNoteUrl, setSickNoteUrl] = useState('');
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(false);
-  const [isCameraActive, setIsCameraActive] = useState(false);
   const [hasSubmitted, setHasSubmitted] = useState(false);
-  const videoRef = useRef<HTMLVideoElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
+
+  // Hide attendance form for CEO and Admin roles
+  const isAdminOrCEO = ['admin_production', 'admin_packing', 'admin_sales', 'ceo', 'vice_ceo', 'super_admin'].includes(user.role);
 
   useEffect(() => {
+    if (isAdminOrCEO) return;
     const checkAttendance = async () => {
       const submitted = await hasCheckedInToday(user.uid);
       setHasSubmitted(submitted);
     };
     checkAttendance();
-  }, [user.uid]);
-
-  useEffect(() => {
-    return () => {
-      if (videoRef.current && videoRef.current.srcObject) {
-        (videoRef.current.srcObject as MediaStream).getTracks().forEach(track => track.stop());
-      }
-    };
-  }, []);
-
-  const startCamera = async () => {
-    setIsCameraActive(true);
-  };
-
-  useEffect(() => {
-    if (isCameraActive) {
-      const initCamera = async () => {
-        try {
-          const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-          if (videoRef.current) {
-            videoRef.current.srcObject = stream;
-          }
-        } catch (err) {
-          console.error("Error accessing camera:", err);
-          alert("Gagal mengakses kamera. Pastikan izin kamera diberikan.");
-          setIsCameraActive(false);
-        }
-      };
-      initCamera();
-    }
-  }, [isCameraActive]);
-
-  const capturePhoto = () => {
-    const video = videoRef.current;
-    const canvas = canvasRef.current;
-    if (video && canvas) {
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d')?.drawImage(video, 0, 0);
-      canvas.toBlob(blob => {
-        if (blob) {
-          const file = new File([blob], 'attendance.jpg', { type: 'image/jpeg' });
-          setPhoto(file);
-          setIsCameraActive(false);
-          const stream = video.srcObject as MediaStream;
-          stream.getTracks().forEach(track => track.stop());
-        }
-      }, 'image/jpeg');
-    }
-  };
+  }, [user.uid, isAdminOrCEO]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    console.log('Submitting attendance...');
     setLoading(true);
     try {
-      let photoUrl = '';
-      let sickNoteUrl = '';
-
-      if (photo) {
-        const photoRef = ref(storage, `attendance/${user.uid}/${Date.now()}_photo.jpg`);
-        await uploadBytes(photoRef, photo);
-        photoUrl = await getDownloadURL(photoRef);
-      }
-
-      if (sickNote) {
-        const noteRef = ref(storage, `attendance/${user.uid}/${Date.now()}_note.pdf`);
-        await uploadBytes(noteRef, sickNote);
-        sickNoteUrl = await getDownloadURL(noteRef);
-      }
-
-      await addDoc(collection(db, 'attendance'), {
+      const record = {
         userId: user.uid,
-        userName: user.name, // Added userName for CEO report
+        userName: user.name,
         date: new Date().toISOString().split('T')[0],
         status,
         photoUrl,
         reason: status === 'Izin' ? reason : '',
         sickNoteUrl,
+        createdAt: new Date().toISOString()
+      };
+
+      await addDoc(collection(db, 'attendance'), {
+        ...record,
         createdAt: serverTimestamp()
       });
 
       await calculateAndUpdateAttendanceScore(user.uid);
-      console.log('Attendance score updated');
-
-      setHasSubmitted(true); // Update state
-      if (onSuccess) onSuccess();
-      console.log('Attendance submitted successfully');
-      setPhoto(null);
-      setSickNote(null);
+      setHasSubmitted(true);
+      if (onSuccess) onSuccess(record);
+      setPhotoUrl('');
+      setSickNoteUrl('');
       setReason('');
     } catch (error) {
       console.error('Attendance submission error:', error);
@@ -126,6 +64,10 @@ export default function AttendanceForm({ user, onSuccess }: AttendanceFormProps)
       setLoading(false);
     }
   };
+
+  if (isAdminOrCEO) {
+    return null;
+  }
 
   if (hasSubmitted) {
     return (
@@ -154,36 +96,47 @@ export default function AttendanceForm({ user, onSuccess }: AttendanceFormProps)
 
       {status === 'Hadir' && (
         <div className="space-y-2">
-          {photo ? (
-            <div className="relative">
-              <img src={URL.createObjectURL(photo)} alt="Captured" className="w-full rounded-xl" />
-              <button type="button" onClick={() => setPhoto(null)} className="absolute top-2 right-2 p-1 bg-red-500 text-white rounded-full"><X className="w-4 h-4" /></button>
-            </div>
-          ) : isCameraActive ? (
-            <div className="space-y-2">
-              <video ref={videoRef} autoPlay playsInline className="w-full rounded-xl bg-zinc-900" />
-              <button type="button" onClick={capturePhoto} className="w-full bg-zinc-900 text-white py-2 rounded-xl font-bold">Ambil Foto</button>
-            </div>
-          ) : (
-            <button type="button" onClick={startCamera} className="w-full py-4 border-2 border-dashed border-zinc-300 rounded-xl text-zinc-500 flex flex-col items-center gap-2">
-              <Camera className="w-8 h-8" />
-              <span>Buka Kamera</span>
-            </button>
-          )}
-          <canvas ref={canvasRef} className="hidden" />
+          <ImageUpload
+            value={photoUrl}
+            onChange={setPhotoUrl}
+            onRemove={() => setPhotoUrl('')}
+            folder={`attendance/${user.uid}`}
+            label="Ambil Foto Kehadiran"
+            showCamera={true}
+            aspectRatio="video"
+          />
         </div>
       )}
 
       {status === 'Izin' && (
-        <textarea value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Alasan izin..." className="w-full p-3 rounded-xl border border-zinc-200 focus:ring-2 focus:ring-zinc-900" />
+        <textarea 
+          value={reason} 
+          onChange={(e) => setReason(e.target.value)} 
+          placeholder="Alasan izin..." 
+          className="w-full p-4 bg-zinc-50 border border-zinc-200 rounded-2xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5 min-h-[120px] resize-none" 
+        />
       )}
 
       {status === 'Sakit' && (
-        <input type="file" accept="image/*,.pdf" onChange={(e) => setSickNote(e.target.files?.[0] || null)} className="block w-full text-sm text-zinc-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-sm file:font-semibold file:bg-zinc-50 file:text-zinc-700 hover:file:bg-zinc-100" />
+        <div className="space-y-2">
+          <p className="text-xs font-bold text-zinc-500 uppercase tracking-wider">Unggah Surat Keterangan Sakit</p>
+          <ImageUpload
+            value={sickNoteUrl}
+            onChange={setSickNoteUrl}
+            onRemove={() => setSickNoteUrl('')}
+            folder={`attendance/${user.uid}/notes`}
+            label="Unggah Surat Sakit"
+            aspectRatio="portrait"
+          />
+        </div>
       )}
 
-      <button type="submit" disabled={loading || (status === 'Hadir' && !photo)} className="w-full bg-zinc-900 text-white py-3 rounded-xl font-bold hover:bg-zinc-800 disabled:opacity-50">
-        {loading ? <Loader2 className="w-5 h-5 animate-spin mx-auto" /> : 'Kirim Absensi'}
+      <button 
+        type="submit" 
+        disabled={loading || (status === 'Hadir' && !photoUrl) || (status === 'Sakit' && !sickNoteUrl) || (status === 'Izin' && !reason)} 
+        className="w-full bg-zinc-900 text-white py-4 rounded-2xl font-bold hover:bg-zinc-800 disabled:opacity-50 transition-all shadow-md flex items-center justify-center gap-2"
+      >
+        {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : 'Kirim Absensi'}
       </button>
     </form>
   );

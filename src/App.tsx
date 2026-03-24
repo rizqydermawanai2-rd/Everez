@@ -50,6 +50,8 @@ export default function App() {
       if (!snapshot.empty) {
         setConfig(snapshot.docs[0].data());
       }
+    }, (error) => {
+      handleFirestoreError(error, OperationType.GET, 'settings');
     });
 
     const unsubscribeAuth = onAuthStateChanged(auth, async (firebaseUser) => {
@@ -310,7 +312,7 @@ export default function App() {
         )}
       </AnimatePresence>
 
-      <main className="flex-1 container mx-auto px-4 py-8">
+      <main className="flex-1 container mx-auto px-4 py-8 overflow-hidden">
         {user && user.role !== 'customer' && user.role !== 'super_admin' && user.approved === false ? (
           <div className="min-h-[60vh] flex flex-col items-center justify-center text-center space-y-6">
             <div className="w-20 h-20 bg-orange-100 rounded-full flex items-center justify-center">
@@ -335,6 +337,8 @@ export default function App() {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
+                className="overflow-hidden"
+                style={{ willChange: 'transform' }}
               >
                 <Auth 
                   onAuthSuccess={() => {
@@ -355,27 +359,63 @@ export default function App() {
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -20 }}
-              className="space-y-12"
+              className="space-y-12 overflow-hidden"
+              style={{ willChange: 'transform' }}
             >
-              <section className="relative h-[400px] rounded-3xl overflow-hidden bg-zinc-900 text-white flex items-center">
-                <div className="absolute inset-0 opacity-40 bg-[url('https://picsum.photos/seed/fashion/1920/1080')] bg-cover bg-center" />
-                <div className="relative z-10 px-12 space-y-6 max-w-2xl">
-                  <h1 className="text-6xl font-bold tracking-tight leading-tight">Everez.<br/>Bring The Hype.</h1>
-                  <p className="text-zinc-300 text-lg">Koleksi eksklusif untuk gaya hidup modern. Kualitas premium, desain minimalis.</p>
-                  <button 
+              <section className="relative h-[500px] md:h-[600px] rounded-[2.5rem] overflow-hidden bg-zinc-900 text-white flex items-center shadow-2xl">
+                <motion.div 
+                  initial={{ scale: 1.1 }}
+                  animate={{ scale: 1 }}
+                  transition={{ duration: 1.5, ease: "easeOut" }}
+                  className="absolute inset-0 opacity-50 bg-[url('https://picsum.photos/seed/fashion/1920/1080')] bg-cover bg-center" 
+                />
+                <div className="absolute inset-0 bg-gradient-to-r from-zinc-900/90 via-zinc-900/50 to-transparent" />
+                <div className="relative z-10 px-8 md:px-16 space-y-8 max-w-3xl">
+                  <motion.h1 
+                    initial={{ opacity: 0, y: 30 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.2, duration: 0.8, ease: "easeOut" }}
+                    className="text-5xl md:text-7xl font-display font-bold tracking-tighter leading-[1.1]"
+                  >
+                    Everez.<br/><span className="text-zinc-400">Bring The Hype.</span>
+                  </motion.h1>
+                  <motion.p 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.4, duration: 0.8, ease: "easeOut" }}
+                    className="text-zinc-300 text-lg md:text-xl max-w-xl font-light"
+                  >
+                    Koleksi eksklusif untuk gaya hidup modern. Kualitas premium, desain minimalis.
+                  </motion.p>
+                  <motion.button 
+                    initial={{ opacity: 0, y: 20 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ delay: 0.6, duration: 0.8, ease: "easeOut" }}
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
                     onClick={() => setView('products')}
-                    className="bg-white text-zinc-900 px-8 py-4 rounded-full font-semibold hover:bg-zinc-200 transition-colors flex items-center gap-2 group"
+                    className="bg-white text-zinc-900 px-8 py-4 rounded-2xl font-bold hover:bg-zinc-100 transition-colors flex items-center gap-2 group shadow-xl"
                   >
                     Belanja Sekarang
                     <ChevronRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-                  </button>
+                  </motion.button>
                 </div>
               </section>
 
-              <section className="space-y-6">
-                <div className="flex items-center justify-between">
-                  <h2 className="text-3xl font-bold">Produk Terbaru</h2>
-                  <button onClick={() => setView('products')} className="text-zinc-500 hover:text-zinc-900 font-medium">Lihat Semua</button>
+              <section className="space-y-8 pt-8">
+                <div className="flex items-end justify-between px-2">
+                  <div className="space-y-2">
+                    <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Produk Terbaru</h2>
+                    <p className="text-zinc-500 font-medium">Koleksi pilihan terbaik untuk Anda</p>
+                  </div>
+                  <motion.button 
+                    whileHover={{ x: 5 }}
+                    onClick={() => setView('products')} 
+                    className="text-zinc-900 font-bold flex items-center gap-1 group"
+                  >
+                    Lihat Semua
+                    <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+                  </motion.button>
                 </div>
                 <ProductGrid 
                   limit={4} 
@@ -397,25 +437,27 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="space-y-8"
+              className="space-y-8 overflow-hidden"
+              style={{ willChange: 'transform' }}
             >
-              <div className="flex flex-col md:flex-row gap-4 items-center justify-between">
-                <h2 className="text-3xl font-bold">Semua Produk</h2>
+              <div className="flex flex-col md:flex-row gap-4 items-center justify-between px-2">
+                <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Semua Produk</h2>
                 <div className="flex gap-4 w-full md:w-auto">
-                  <div className="relative flex-1 md:w-64">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-400" />
+                  <div className="relative flex-1 md:w-72">
+                    <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
                     <input 
                       type="text" 
                       placeholder="Cari produk..." 
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none focus:ring-2 focus:ring-zinc-900/5"
+                      className="modern-input pl-12"
                     />
                   </div>
                   <select 
                     value={categoryFilter}
                     onChange={(e) => setCategoryFilter(e.target.value)}
-                    className="px-4 py-2 bg-white border border-zinc-200 rounded-xl focus:outline-none"
+                    className="modern-input w-auto cursor-pointer appearance-none pr-10 font-medium"
+                    style={{ backgroundImage: `url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%2371717a'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E")`, backgroundPosition: `right 1rem center`, backgroundRepeat: `no-repeat`, backgroundSize: `1.5em 1.5em` }}
                   >
                     <option>Semua</option>
                     <option>Kaos</option>
@@ -475,10 +517,10 @@ export default function App() {
 
           {view === 'orders' && user && <MyOrders user={user} />}
 
-          {view === 'admin_production' && user?.role === 'admin_production' && user.approved !== false && <AdminProductionDashboard onViewWebsite={() => setView('home')} />}
-          {view === 'admin_packing' && user?.role === 'admin_packing' && user.approved !== false && <AdminPackingDashboard onViewWebsite={() => setView('home')} />}
+          {view === 'admin_production' && user?.role === 'admin_production' && user.approved !== false && <AdminProductionDashboard user={user} onViewWebsite={() => setView('home')} />}
+          {view === 'admin_packing' && user?.role === 'admin_packing' && user.approved !== false && <AdminPackingDashboard user={user} onViewWebsite={() => setView('home')} />}
           {view === 'admin_sales' && user?.role === 'admin_sales' && user.approved !== false && <AdminSalesDashboard user={user} onViewWebsite={() => setView('home')} />}
-          {view === 'super_admin' && user?.role === 'super_admin' && <SuperAdminDashboard onViewWebsite={() => setView('home')} />}
+          {view === 'super_admin' && user?.role === 'super_admin' && <SuperAdminDashboard user={user} onViewWebsite={() => setView('home')} />}
         </AnimatePresence>
         )}
       </main>
