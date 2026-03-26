@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
   Package, Truck, CheckCircle2, Clock, Search, 
   Bell, User as UserIcon, ShoppingCart, CreditCard, ArrowLeft,
-  MoreHorizontal, MapPin, Phone, Mail, ExternalLink, Trash2, Box, Globe
+  MoreHorizontal, MapPin, Phone, Mail, ExternalLink, Trash2, Box, Globe, MessageSquare, DollarSign
 } from 'lucide-react';
 import { cn, getImageUrl } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -11,6 +11,9 @@ import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, wher
 import { Order, User } from '../../types';
 import AttendanceForm from './AttendanceForm';
 import { hasCheckedInToday } from '../../services/attendanceService';
+import NotificationDropdown, { Notification } from './NotificationDropdown';
+import AdminChat from './AdminChat';
+import { DEFAULT_COURIER } from '../../services/shippingService';
 
 interface AdminPackingDashboardProps {
   user: User;
@@ -21,8 +24,10 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('packing');
-  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [hasCheckedIn, setHasCheckedIn] = useState(['ceo', 'vice_ceo', 'super_admin', 'admin_production', 'admin_packing', 'admin_sales'].includes(user.role));
   const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const selectedOrder = orders.find(o => o.id === selectedOrderId) || orders[0];
@@ -40,7 +45,7 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
     };
     checkAttendance();
 
-    const unsub = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
+    const unsubOrders = onSnapshot(query(collection(db, 'orders'), orderBy('createdAt', 'desc')), (snapshot) => {
       const fetchedOrders = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Order));
       setOrders(fetchedOrders);
       if (fetchedOrders.length > 0 && !selectedOrderId) {
@@ -51,8 +56,55 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
       handleFirestoreError(error, OperationType.LIST, 'orders', false);
     });
 
-    return () => unsub();
+    const unsubChats = onSnapshot(collection(db, 'chats'), (snapshot) => {
+      let totalUnread = 0;
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.unreadAdmin) {
+          totalUnread += data.unreadAdmin;
+        }
+      });
+      setUnreadChatCount(totalUnread);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'chats', false);
+    });
+
+    return () => {
+      unsubOrders();
+      unsubChats();
+    };
   }, [selectedOrderId]);
+
+  useEffect(() => {
+    const newNotifications: Notification[] = [];
+    
+    if (unreadChatCount > 0) {
+      newNotifications.push({
+        id: 'unread-chats',
+        title: 'Pesan Baru',
+        message: `Ada ${unreadChatCount} pesan belum dibaca`,
+        type: 'chat',
+        time: 'Baru saja',
+        read: false,
+        action: () => setActiveTab('chat')
+      });
+    }
+    
+    const newOrders = orders.filter(o => o.status === 'Packing');
+    if (newOrders.length > 0) {
+      newNotifications.push({
+        id: 'new-orders',
+        title: 'Antrean Packing',
+        message: `Ada ${newOrders.length} pesanan perlu dipacking`,
+        type: 'order',
+        time: 'Baru saja',
+        read: false,
+        action: () => setActiveTab('packing')
+      });
+    }
+
+    setNotifications(newNotifications);
+  }, [orders]);
 
   const updateStatus = async (id: string, status: string) => {
     try {
@@ -117,9 +169,10 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
         
         <nav className="flex-1 flex flex-row md:flex-col gap-2 md:gap-1 ml-4 md:ml-0 overflow-x-auto md:overflow-visible hide-scrollbar">
           {[
-            { id: 'packing', icon: Package, label: 'Antrian Packing' },
+            { id: 'packing', icon: Package, label: 'Antrian Packing', badge: orders.filter(o => o.status === 'Packing').length },
             { id: 'shipping', icon: Truck, label: 'Status Kirim' },
             { id: 'completed', icon: CheckCircle2, label: 'Riwayat Packing' },
+            { id: 'chat', icon: MessageSquare, label: 'Live Chat', badge: unreadChatCount > 0 ? unreadChatCount : undefined },
           ].map((item) => (
             <motion.button
               key={item.id}
@@ -127,14 +180,24 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
               whileTap={{ scale: 0.98 }}
               onClick={() => setActiveTab(item.id)}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
+                "flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
                 activeTab === item.id 
                   ? "bg-zinc-900 text-white shadow-md" 
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
               )}
             >
-              <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
-              <span className="hidden md:inline">{item.label}</span>
+              <div className="flex items-center gap-3">
+                <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
+                <span className="hidden md:inline">{item.label}</span>
+              </div>
+              {item.badge ? (
+                <span className={cn(
+                  "px-2 py-0.5 text-[10px] font-bold rounded-full",
+                  activeTab === item.id ? "bg-white text-zinc-900" : "bg-red-500 text-white"
+                )}>
+                  {item.badge}
+                </span>
+              ) : null}
             </motion.button>
           ))}
           
@@ -179,10 +242,7 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                 className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200/60 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 shadow-sm"
               />
             </div>
-            <button className="w-10 h-10 shrink-0 bg-white border border-zinc-200/60 rounded-xl flex items-center justify-center text-zinc-600 hover:bg-zinc-50 shadow-sm relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-            </button>
+            <NotificationDropdown notifications={notifications} />
           </div>
         </header>
 
@@ -327,6 +387,12 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                                 <MapPin className="w-4 h-4 text-zinc-400 shrink-0 mt-0.5" />
                                 <span className="text-sm text-zinc-600 leading-relaxed">{selectedOrder.address || 'Alamat tidak tersedia'}</span>
                               </div>
+                              {selectedOrder.totalWeight && (
+                                <div className="flex items-center gap-3 pt-2 border-t border-zinc-100">
+                                  <Package className="w-4 h-4 text-zinc-400 shrink-0" />
+                                  <span className="text-sm font-medium text-zinc-600">Total Berat: {selectedOrder.totalWeight}g</span>
+                                </div>
+                              )}
                             </div>
                           </section>
 
@@ -338,7 +404,7 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                                 <div key={idx} className="flex items-center gap-4 p-3 rounded-xl border border-zinc-100 bg-white">
                                   <img src={getImageUrl(item.image) || `https://picsum.photos/seed/${item.id}/100/100`} alt={item.name} className="w-12 h-12 rounded-lg object-cover bg-zinc-50 shrink-0" referrerPolicy="no-referrer" />
                                   <div className="flex-1 min-w-0">
-                                    <p className="text-sm font-bold truncate">{item.name}</p>
+                                    <p className="text-sm font-bold truncate">{item.name} {item.selectedSize && `(${item.selectedSize})`}</p>
                                     <p className="text-xs text-zinc-500">Jumlah: {item.quantity}</p>
                                   </div>
                                 </div>
@@ -492,6 +558,17 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                               <p className="text-sm text-zinc-600 leading-relaxed">{selectedOrder.address}</p>
                             </div>
                           </div>
+                          {selectedOrder.shippingCost && (
+                            <div className="flex items-start gap-3">
+                              <div className="w-8 h-8 rounded-full bg-zinc-100 flex items-center justify-center shrink-0">
+                                <DollarSign className="w-4 h-4 text-zinc-500" />
+                              </div>
+                              <div>
+                                <p className="text-xs text-zinc-400 font-bold uppercase tracking-widest mb-1">Ongkos Kirim</p>
+                                <p className="text-sm font-bold text-zinc-900">Rp {selectedOrder.shippingCost.toLocaleString('id-ID')}</p>
+                              </div>
+                            </div>
+                          )}
                         </div>
 
                         <div className="pt-6 border-t border-zinc-100">
@@ -502,7 +579,7 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                                 <Truck className="w-5 h-5 text-zinc-400" />
                               </div>
                               <div>
-                                <p className="text-sm font-bold text-zinc-900">J&T Express</p>
+                                <p className="text-sm font-bold text-zinc-900">{selectedOrder.shippingCourier || DEFAULT_COURIER}</p>
                                 <p className="text-[10px] text-zinc-500">Reguler Service</p>
                               </div>
                             </div>
@@ -596,6 +673,19 @@ export default function AdminPackingDashboard({ user, onViewWebsite }: AdminPack
                   </motion.div>
                 )}
               </div>
+            </motion.div>
+          )}
+
+          {activeTab === 'chat' && (
+            <motion.div
+              key="chat"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="h-[calc(100vh-12rem)]"
+            >
+              <AdminChat user={user} />
             </motion.div>
           )}
           </AnimatePresence>

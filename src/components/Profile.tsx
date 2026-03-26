@@ -18,6 +18,8 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
   const [name, setName] = useState(user.name);
   const [phone, setPhone] = useState(user.phone || '');
   const [city, setCity] = useState(user.city || '');
+  const [district, setDistrict] = useState(user.district || '');
+  const [postalCode, setPostalCode] = useState(user.postalCode || '');
   const [address, setAddress] = useState(user.address || '');
   const [photoURL, setPhotoURL] = useState(user.photoURL || '');
   const [loading, setLoading] = useState(false);
@@ -47,6 +49,8 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
         name,
         phone,
         city,
+        district,
+        postalCode,
         address,
         photoURL
       };
@@ -115,7 +119,7 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
                   required 
                   value={name}
                   onChange={(e) => setName(e.target.value)}
-                  className="modern-input pl-12"
+                  className="modern-input !pl-12"
                 />
               </div>
 
@@ -127,7 +131,7 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
                   required 
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
-                  className="modern-input pl-12"
+                  className="modern-input !pl-12"
                 />
               </div>
 
@@ -135,23 +139,47 @@ export default function Profile({ user, onUpdate, onClose }: ProfileProps) {
                 <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
                 <input 
                   type="text" 
-                  placeholder="Asal Kota" 
+                  placeholder="Kecamatan" 
+                  required 
+                  value={district}
+                  onChange={(e) => setDistrict(e.target.value)}
+                  className="modern-input !pl-12"
+                />
+              </div>
+
+              <div className="relative w-full">
+                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                <input 
+                  type="text" 
+                  placeholder="Kota/Kabupaten" 
                   required 
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
-                  className="modern-input pl-12"
+                  className="modern-input !pl-12"
+                />
+              </div>
+
+              <div className="relative w-full">
+                <MapPin className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-zinc-400" />
+                <input 
+                  type="text" 
+                  placeholder="Kode Pos" 
+                  required 
+                  value={postalCode}
+                  onChange={(e) => setPostalCode(e.target.value)}
+                  className="modern-input !pl-12"
                 />
               </div>
 
               <div className="relative w-full">
                 <Home className="absolute left-4 top-4 w-5 h-5 text-zinc-400" />
                 <textarea 
-                  placeholder="Alamat Lengkap" 
+                  placeholder="Alamat Jalan (Nama Jalan, RT/RW, No. Rumah)" 
                   required 
                   rows={3}
                   value={address}
                   onChange={(e) => setAddress(e.target.value)}
-                  className="modern-input pl-12 resize-y min-h-[100px]"
+                  className="modern-input !pl-12 resize-y min-h-[100px]"
                 />
               </div>
             </div>

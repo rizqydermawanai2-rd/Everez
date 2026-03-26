@@ -10,7 +10,7 @@ import { doc, getDoc, setDoc, getDocFromServer, updateDoc, onSnapshot, collectio
 import { User, UserRole, Product, CartItem, Order } from './types';
 import { handleFirestoreError, OperationType } from './firebase';
 import { motion, AnimatePresence } from 'motion/react';
-import { ShoppingCart, LogOut, User as UserIcon, Package, LayoutDashboard, ShoppingBag, Menu, X, ChevronRight, Search, Filter, Plus, Edit, Trash, Truck, CheckCircle, Clock } from 'lucide-react';
+import { ShoppingCart, LogOut, User as UserIcon, Package, LayoutDashboard, ShoppingBag, Menu, X, ChevronRight, Search, Filter, Plus, Edit, Trash, Truck, CheckCircle, Clock, Instagram, Facebook, Music } from 'lucide-react';
 import { cn } from './lib/utils';
 
 // Components
@@ -26,6 +26,7 @@ import AdminPackingDashboard from './components/dashboard/AdminPackingDashboard'
 import SuperAdminDashboard from './components/dashboard/SuperAdminDashboard';
 import AdminSalesDashboard from './components/dashboard/AdminSalesDashboard';
 import Profile from './components/Profile';
+import ChatWidget from './components/ChatWidget';
 import { seedProducts } from './lib/seed';
 
 export default function App() {
@@ -37,6 +38,7 @@ export default function App() {
   const [view, setView] = useState<'home' | 'products' | 'product_detail' | 'cart' | 'checkout' | 'orders' | 'admin_production' | 'admin_packing' | 'admin_sales' | 'super_admin' | 'login'>('home');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [cart, setCart] = useState<CartItem[]>([]);
+  const [appliedPromo, setAppliedPromo] = useState<any>(null);
   const [searchQuery, setSearchQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('Semua');
   const [showProfile, setShowProfile] = useState(false);
@@ -191,23 +193,24 @@ export default function App() {
     }, 2000);
   };
 
-  const addToCart = (product: Product) => {
+  const addToCart = (product: Product & { selectedSize?: string }) => {
+    const priceToUse = product.discountPrice && product.discountPrice > 0 ? product.discountPrice : product.price;
     setCart(prev => {
-      const existing = prev.find(item => item.id === product.id);
+      const existing = prev.find(item => item.id === product.id && item.selectedSize === product.selectedSize);
       if (existing) {
-        return prev.map(item => item.id === product.id ? { ...item, quantity: item.quantity + 1 } : item);
+        return prev.map(item => (item.id === product.id && item.selectedSize === product.selectedSize) ? { ...item, quantity: item.quantity + 1, price: priceToUse } : item);
       }
-      return [...prev, { ...product, quantity: 1 }];
+      return [...prev, { ...product, price: priceToUse, quantity: 1 }];
     });
   };
 
-  const removeFromCart = (productId: string) => {
-    setCart(prev => prev.filter(item => item.id !== productId));
+  const removeFromCart = (productId: string, selectedSize?: string) => {
+    setCart(prev => prev.filter(item => !(item.id === productId && item.selectedSize === selectedSize)));
   };
 
-  const updateQuantity = (productId: string, delta: number) => {
+  const updateQuantity = (productId: string, delta: number, selectedSize?: string) => {
     setCart(prev => prev.map(item => {
-      if (item.id === productId) {
+      if (item.id === productId && item.selectedSize === selectedSize) {
         const newQty = Math.max(1, item.quantity + delta);
         return { ...item, quantity: newQty };
       }
@@ -405,6 +408,28 @@ export default function App() {
               <section className="space-y-8 pt-8">
                 <div className="flex items-end justify-between px-2">
                   <div className="space-y-2">
+                    <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Bundle Deals.</h2>
+                    <p className="text-zinc-500 font-medium">Paket hemat pilihan dengan harga spesial</p>
+                  </div>
+                </div>
+                <div className="bg-blue-50/30 p-8 rounded-[3rem] border border-blue-100/50">
+                  <ProductGrid 
+                    isBundleOnly={true}
+                    limit={4} 
+                    onAddToCart={addToCart} 
+                    onProductClick={(p) => {
+                      setSelectedProduct(p);
+                      setView('product_detail');
+                    }}
+                    searchQuery={searchQuery}
+                    categoryFilter={categoryFilter}
+                  />
+                </div>
+              </section>
+
+              <section className="space-y-8 pt-8">
+                <div className="flex items-end justify-between px-2">
+                  <div className="space-y-2">
                     <h2 className="text-3xl md:text-4xl font-display font-bold tracking-tight">Produk Terbaru</h2>
                     <p className="text-zinc-500 font-medium">Koleksi pilihan terbaik untuk Anda</p>
                   </div>
@@ -418,6 +443,7 @@ export default function App() {
                   </motion.button>
                 </div>
                 <ProductGrid 
+                  isBundleOnly={false}
                   limit={4} 
                   onAddToCart={addToCart} 
                   onProductClick={(p) => {
@@ -450,7 +476,7 @@ export default function App() {
                       placeholder="Cari produk..." 
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
-                      className="modern-input pl-12"
+                      className="modern-input !pl-12"
                     />
                   </div>
                   <select 
@@ -492,6 +518,8 @@ export default function App() {
               onRemove={removeFromCart} 
               onUpdateQty={updateQuantity} 
               isGuest={!user}
+              appliedPromo={appliedPromo}
+              onApplyPromo={setAppliedPromo}
               onCheckout={() => {
                 if (!user) {
                   setView('login');
@@ -507,15 +535,17 @@ export default function App() {
             <Checkout 
               items={cart} 
               user={user} 
+              appliedPromo={appliedPromo}
               onSuccess={() => {
                 clearCart();
+                setAppliedPromo(null);
                 setView('orders');
               }}
               onCancel={() => setView('cart')}
             />
           )}
 
-          {view === 'orders' && user && <MyOrders user={user} />}
+          {view === 'orders' && user && <MyOrders user={user} onProfileClick={() => setShowProfile(true)} onContinue={() => setView('home')} />}
 
           {view === 'admin_production' && user?.role === 'admin_production' && user.approved !== false && <AdminProductionDashboard user={user} onViewWebsite={() => setView('home')} />}
           {view === 'admin_packing' && user?.role === 'admin_packing' && user.approved !== false && <AdminPackingDashboard user={user} onViewWebsite={() => setView('home')} />}
@@ -551,13 +581,16 @@ export default function App() {
             <div>
               <h4 className="font-semibold mb-4">Ikuti Kami</h4>
               <div className="flex gap-4">
-                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">IG</div>
-                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors">TW</div>
+                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors"><Instagram className="w-5 h-5" /></div>
+                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors"><Facebook className="w-5 h-5" /></div>
+                <div className="w-10 h-10 bg-zinc-100 rounded-full flex items-center justify-center hover:bg-zinc-200 cursor-pointer transition-colors"><Music className="w-5 h-5" /></div>
               </div>
             </div>
           </div>
         </footer>
       )}
+      
+      <ChatWidget user={user} onLoginClick={() => setView('login')} />
     </div>
   );
 }

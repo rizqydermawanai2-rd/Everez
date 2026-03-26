@@ -1,18 +1,32 @@
-import { useState, useEffect } from 'react';
 import { db, handleFirestoreError, OperationType } from '../firebase';
-import { collection, query, where, onSnapshot, orderBy } from 'firebase/firestore';
+import { collection, query, where, onSnapshot, orderBy, doc, updateDoc } from 'firebase/firestore';
 import { Order, User } from '../types';
 import { motion } from 'motion/react';
-import { Package, Truck, CheckCircle, Clock } from 'lucide-react';
+import { Package, Truck, CheckCircle, Clock, Tag, Upload, Eye, X } from 'lucide-react';
 import { cn, getImageUrl } from '../lib/utils';
+import ImageUpload from './ImageUpload';
+import { useState, useEffect } from 'react';
 
 interface MyOrdersProps {
   user: User;
+  onProfileClick: () => void;
+  onContinue: () => void;
 }
 
-export default function MyOrders({ user }: MyOrdersProps) {
+export default function MyOrders({ user, onProfileClick, onContinue }: MyOrdersProps) {
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
+  const [selectedImage, setSelectedImage] = useState<string | null>(null);
+
+  const handleUpdatePaymentProof = async (orderId: string, url: string) => {
+    try {
+      await updateDoc(doc(db, 'orders', orderId), {
+        paymentProofUrl: url
+      });
+    } catch (error) {
+      handleFirestoreError(error, OperationType.UPDATE, `orders/${orderId}`);
+    }
+  };
 
   useEffect(() => {
     const q = query(
@@ -61,6 +75,14 @@ export default function MyOrders({ user }: MyOrdersProps) {
         </div>
         <h2 className="text-3xl font-display font-bold">Belum Ada Pesanan.</h2>
         <p className="text-zinc-500">Kamu belum melakukan pembelian apapun.</p>
+        <div className="flex justify-center">
+          <button 
+            onClick={onContinue}
+            className="modern-button"
+          >
+            Mulai Belanja
+          </button>
+        </div>
       </motion.div>
     );
   }
@@ -70,9 +92,10 @@ export default function MyOrders({ user }: MyOrdersProps) {
       <motion.h2 
         initial={{ opacity: 0, x: -20 }}
         animate={{ opacity: 1, x: 0 }}
-        className="text-4xl font-display font-bold tracking-tight"
+        className="text-4xl font-display font-bold tracking-tight flex justify-between items-center"
       >
         Pesanan Saya.
+        <button onClick={onProfileClick} className="text-sm font-bold bg-zinc-900 text-white px-4 py-2 rounded-xl">Lihat Profil</button>
       </motion.h2>
       <div className="space-y-6">
         {orders.map((order, index) => (
@@ -108,7 +131,7 @@ export default function MyOrders({ user }: MyOrdersProps) {
                         <img src={getImageUrl(item.image) || `https://picsum.photos/seed/${item.id}/100/100`} alt={item.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" referrerPolicy="no-referrer" />
                       </div>
                       <div>
-                        <p className="font-display font-bold text-zinc-900">{item.name}</p>
+                        <p className="font-display font-bold text-zinc-900">{item.name} {item.selectedSize && `(${item.selectedSize})`}</p>
                         <p className="text-xs text-zinc-500 font-medium">{item.quantity} x Rp {item.price.toLocaleString('id-ID')}</p>
                       </div>
                     </div>
@@ -117,15 +140,57 @@ export default function MyOrders({ user }: MyOrdersProps) {
                 ))}
               </div>
               <div className="pt-6 border-t border-zinc-100 flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
-                <div>
-                  <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-1">Alamat Pengiriman</p>
-                  <p className="text-sm text-zinc-600 max-w-md font-medium">{order.address}</p>
+                <div className="space-y-4">
+                  <div>
+                    <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-1">Alamat Pengiriman</p>
+                    <p className="text-sm text-zinc-600 max-w-md font-medium">{order.address}</p>
+                  </div>
+                  {order.promoCode && (
+                    <div className="flex items-center gap-2 px-3 py-1.5 bg-emerald-50 border border-emerald-100 rounded-full w-fit">
+                      <Tag className="w-3 h-3 text-emerald-600" />
+                      <span className="text-[10px] font-bold text-emerald-700 uppercase tracking-wider">Promo: {order.promoCode}</span>
+                    </div>
+                  )}
                 </div>
-                <div className="text-right">
+                <div className="text-right space-y-1">
+                  {order.discountAmount && order.discountAmount > 0 && (
+                    <p className="text-xs font-medium text-emerald-600">- Rp {order.discountAmount.toLocaleString('id-ID')}</p>
+                  )}
                   <p className="text-[10px] text-zinc-400 uppercase tracking-widest font-bold mb-1">Total Pembayaran</p>
                   <p className="text-2xl font-display font-bold text-zinc-900">Rp {order.total.toLocaleString('id-ID')}</p>
                 </div>
               </div>
+
+              {order.status === 'Diproses' && (
+                <div className="pt-6 border-t border-zinc-100 space-y-4">
+                  <div className="flex items-center gap-3 text-zinc-400">
+                    <Upload className="w-5 h-5" />
+                    <h3 className="font-bold uppercase tracking-widest text-xs">
+                      {order.paymentProofUrl ? 'Bukti Pembayaran Terunggah' : 'Unggah Bukti Pembayaran'}
+                    </h3>
+                  </div>
+                  <div className="max-w-xs">
+                    <ImageUpload 
+                      value={order.paymentProofUrl} 
+                      onChange={(url) => handleUpdatePaymentProof(order.id, url)}
+                      onRemove={() => handleUpdatePaymentProof(order.id, '')}
+                      showCamera={false}
+                      label="Unggah Bukti Transfer"
+                      aspectRatio="video"
+                    />
+                  </div>
+                  {order.paymentProofUrl && (
+                    <button 
+                      onClick={() => setSelectedImage(order.paymentProofUrl!)}
+                      className="flex items-center gap-2 text-xs font-bold text-zinc-900 hover:underline"
+                    >
+                      <Eye className="w-4 h-4" />
+                      Lihat Bukti Pembayaran
+                    </button>
+                  )}
+                </div>
+              )}
+
               {order.trackingNumber && (
                 <div className="bg-zinc-50 border border-zinc-100 p-4 rounded-2xl flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -139,6 +204,33 @@ export default function MyOrders({ user }: MyOrdersProps) {
           </motion.div>
         ))}
       </div>
+
+      {/* Image Preview Modal */}
+      {selectedImage && (
+        <div 
+          className="fixed inset-0 z-[100] bg-black/90 backdrop-blur-sm flex items-center justify-center p-4 md:p-10"
+          onClick={() => setSelectedImage(null)}
+        >
+          <motion.div 
+            initial={{ scale: 0.9, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            className="relative max-w-4xl w-full h-full flex items-center justify-center"
+          >
+            <img 
+              src={getImageUrl(selectedImage)} 
+              alt="Payment Proof" 
+              className="max-w-full max-h-full object-contain rounded-2xl shadow-2xl"
+              referrerPolicy="no-referrer"
+            />
+            <button 
+              onClick={() => setSelectedImage(null)}
+              className="absolute top-0 right-0 m-4 p-3 bg-white/10 hover:bg-white/20 text-white rounded-full transition-colors"
+            >
+              <X className="w-6 h-6" />
+            </button>
+          </motion.div>
+        </div>
+      )}
     </div>
   );
 }

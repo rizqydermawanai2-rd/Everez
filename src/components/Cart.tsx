@@ -1,19 +1,90 @@
-import { CartItem } from '../types';
+import { useState } from 'react';
+import { CartItem, PromoCode } from '../types';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { motion } from 'motion/react';
-import { Trash, Plus, Minus, ArrowRight, ShoppingBag } from 'lucide-react';
+import { Trash, Plus, Minus, ArrowRight, ShoppingBag, Tag, X } from 'lucide-react';
 import { getImageUrl } from '../lib/utils';
 
 interface CartProps {
   items: CartItem[];
-  onRemove: (id: string) => void;
-  onUpdateQty: (id: string, delta: number) => void;
+  onRemove: (id: string, selectedSize?: string) => void;
+  onUpdateQty: (id: string, delta: number, selectedSize?: string) => void;
   onCheckout: () => void;
   onContinue: () => void;
   isGuest: boolean;
+  appliedPromo: PromoCode | null;
+  onApplyPromo: (promo: PromoCode | null) => void;
 }
 
-export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onContinue, isGuest }: CartProps) {
-  const total = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onContinue, isGuest, appliedPromo, onApplyPromo }: CartProps) {
+  const [promoInput, setPromoInput] = useState('');
+  const [promoError, setPromoError] = useState('');
+  const [isVerifying, setIsVerifying] = useState(false);
+
+  const subtotal = items.reduce((acc, item) => acc + item.price * item.quantity, 0);
+
+  const calculateDiscount = () => {
+    if (!appliedPromo) return 0;
+    
+    if (appliedPromo.minPurchase && subtotal < appliedPromo.minPurchase) {
+      return 0;
+    }
+
+    let discount = 0;
+    if (appliedPromo.discountType === 'percentage') {
+      discount = (subtotal * appliedPromo.discountValue) / 100;
+      if (appliedPromo.maxDiscount && discount > appliedPromo.maxDiscount) {
+        discount = appliedPromo.maxDiscount;
+      }
+    } else {
+      discount = appliedPromo.discountValue;
+    }
+
+    return Math.min(discount, subtotal);
+  };
+
+  const discountAmount = calculateDiscount();
+  const total = subtotal - discountAmount;
+
+  const handleApplyPromo = async () => {
+    if (!promoInput.trim()) return;
+    
+    setIsVerifying(true);
+    setPromoError('');
+    
+    try {
+      const q = query(collection(db, 'promo_codes'), where('code', '==', promoInput.toUpperCase()), where('isActive', '==', true));
+      const snapshot = await getDocs(q);
+      
+      if (snapshot.empty) {
+        setPromoError('Kode promo tidak valid atau sudah tidak aktif.');
+      } else {
+        const promo = { id: snapshot.docs[0].id, ...snapshot.docs[0].data() } as PromoCode;
+        
+        // Check expiry
+        if (promo.expiryDate && new Date(promo.expiryDate) < new Date()) {
+          setPromoError('Kode promo sudah kadaluarsa.');
+        } 
+        // Check usage limit
+        else if (promo.usageLimit && promo.usageCount >= promo.usageLimit) {
+          setPromoError('Batas penggunaan kode promo sudah habis.');
+        }
+        // Check min purchase
+        else if (promo.minPurchase && subtotal < promo.minPurchase) {
+          setPromoError(`Minimal belanja Rp ${promo.minPurchase.toLocaleString('id-ID')} untuk menggunakan kode ini.`);
+        }
+        else {
+          onApplyPromo(promo);
+          setPromoInput('');
+        }
+      }
+    } catch (err) {
+      setPromoError('Terjadi kesalahan saat memverifikasi kode.');
+    } finally {
+      setIsVerifying(false);
+    }
+  };
 
   if (items.length === 0) {
     return (
@@ -27,14 +98,16 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
         </div>
         <h2 className="text-3xl font-display font-bold">Keranjang Kosong</h2>
         <p className="text-zinc-500">Sepertinya kamu belum menambahkan produk apapun ke keranjang.</p>
-        <motion.button 
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          onClick={onContinue}
-          className="modern-button"
-        >
-          Mulai Belanja
-        </motion.button>
+        <div className="flex justify-center">
+          <motion.button 
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onContinue}
+            className="modern-button"
+          >
+            Mulai Belanja
+          </motion.button>
+        </div>
       </motion.div>
     );
   }
@@ -72,9 +145,12 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
                   <div>
                     <p className="text-xs text-zinc-400 uppercase tracking-widest font-bold mb-1">{item.category}</p>
                     <h3 className="text-xl font-display font-bold">{item.name}</h3>
+                    {item.selectedSize && (
+                      <p className="text-sm font-bold text-zinc-500 mt-1">Ukuran: {item.selectedSize}</p>
+                    )}
                   </div>
                   <button 
-                    onClick={() => onRemove(item.id)}
+                    onClick={() => onRemove(item.id, item.selectedSize)}
                     className="p-2 text-zinc-300 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors"
                   >
                     <Trash className="w-5 h-5" />
@@ -83,14 +159,14 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
                 <div className="flex justify-between items-center">
                   <div className="flex items-center gap-4 bg-zinc-50 p-1 rounded-xl border border-zinc-200/50">
                     <button 
-                      onClick={() => onUpdateQty(item.id, -1)}
+                      onClick={() => onUpdateQty(item.id, -1, item.selectedSize)}
                       className="p-2 hover:bg-white rounded-lg transition-colors shadow-sm"
                     >
                       <Minus className="w-4 h-4" />
                     </button>
                     <span className="font-bold w-8 text-center">{item.quantity}</span>
                     <button 
-                      onClick={() => onUpdateQty(item.id, 1)}
+                      onClick={() => onUpdateQty(item.id, 1, item.selectedSize)}
                       className="p-2 hover:bg-white rounded-lg transition-colors shadow-sm"
                     >
                       <Plus className="w-4 h-4" />
@@ -111,11 +187,56 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
       >
         <div className="modern-card p-8 space-y-6 sticky top-28">
           <h3 className="text-2xl font-display font-bold">Ringkasan.</h3>
+          
           <div className="space-y-4">
+            <div className="space-y-2">
+              <label className="text-[10px] font-bold text-zinc-400 uppercase tracking-widest ml-1">Kode Promo</label>
+              <div className="flex gap-2">
+                <input 
+                  type="text" 
+                  placeholder="Masukkan kode..." 
+                  value={promoInput}
+                  onChange={e => setPromoInput(e.target.value.toUpperCase())}
+                  className="flex-1 p-3 bg-zinc-50 border border-zinc-200/60 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 font-bold tracking-widest"
+                />
+                <button 
+                  onClick={handleApplyPromo}
+                  disabled={isVerifying || !promoInput.trim()}
+                  className="px-4 py-2 bg-zinc-900 text-white rounded-xl text-xs font-bold hover:bg-zinc-800 transition-all disabled:opacity-50"
+                >
+                  {isVerifying ? '...' : 'Gunakan'}
+                </button>
+              </div>
+              {promoError && <p className="text-[10px] text-red-500 font-medium ml-1">{promoError}</p>}
+            </div>
+
+            {appliedPromo && (
+              <div className="flex items-center justify-between p-3 bg-emerald-50 border border-emerald-100 rounded-xl">
+                <div className="flex items-center gap-2">
+                  <Tag className="w-4 h-4 text-emerald-600" />
+                  <div>
+                    <p className="text-xs font-bold text-emerald-900">{appliedPromo.code}</p>
+                    <p className="text-[10px] text-emerald-600">Terpasang</p>
+                  </div>
+                </div>
+                <button onClick={() => onApplyPromo(null)} className="p-1 hover:bg-emerald-100 rounded-full text-emerald-600 transition-colors">
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
+
+          <div className="space-y-4 pt-4 border-t border-zinc-100">
             <div className="flex justify-between text-zinc-500 font-medium">
               <span>Subtotal</span>
-              <span className="text-zinc-900">Rp {total.toLocaleString('id-ID')}</span>
+              <span className="text-zinc-900">Rp {subtotal.toLocaleString('id-ID')}</span>
             </div>
+            {discountAmount > 0 && (
+              <div className="flex justify-between text-emerald-600 font-medium">
+                <span>Diskon Promo</span>
+                <span>- Rp {discountAmount.toLocaleString('id-ID')}</span>
+              </div>
+            )}
             <div className="flex justify-between text-zinc-500 font-medium">
               <span>Pengiriman</span>
               <span className="text-emerald-500 font-bold">Gratis</span>
@@ -139,12 +260,14 @@ export default function Cart({ items, onRemove, onUpdateQty, onCheckout, onConti
               * Kamu harus memiliki akun untuk melakukan pemesanan.
             </p>
           )}
-          <button 
-            onClick={onContinue}
-            className="w-full text-zinc-500 font-bold hover:text-zinc-900 transition-colors"
-          >
-            Lanjut Belanja
-          </button>
+          <div className="text-center">
+            <button 
+              onClick={onContinue}
+              className="text-zinc-500 font-bold hover:text-zinc-900 transition-colors"
+            >
+              Lanjut Belanja
+            </button>
+          </div>
         </div>
       </motion.div>
     </div>

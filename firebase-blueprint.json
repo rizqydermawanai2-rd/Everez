@@ -10,6 +10,8 @@
         "name": { "type": "string" },
         "role": { "type": "string", "enum": ["customer", "admin_sales", "admin_packing", "admin_production", "super_admin"] },
         "address": { "type": "string" },
+        "district": { "type": "string" },
+        "postalCode": { "type": "string" },
         "phone": { "type": "string" },
         "city": { "type": "string" },
         "photoURL": { "type": "string" },
@@ -30,6 +32,13 @@
         "images": { "type": "array", "items": { "type": "string" } },
         "description": { "type": "string" },
         "stock": { "type": "integer" },
+        "weight": { "type": "number", "description": "Weight per product in grams" },
+        "discountPrice": { "type": "number" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "promoLabel": { "type": "string" },
+        "isBundle": { "type": "boolean" },
+        "bundleItems": { "type": "array", "items": { "type": "string" } },
         "features": {
           "type": "array",
           "items": {
@@ -44,6 +53,21 @@
         }
       },
       "required": ["name", "price", "category", "stock"]
+    },
+    "PaymentMethod": {
+      "title": "PaymentMethod",
+      "description": "Payment method configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string", "enum": ["bank", "dana"] },
+        "name": { "type": "string" },
+        "accountNumber": { "type": "string" },
+        "phoneNumber": { "type": "string" },
+        "barcodeUrl": { "type": "string" },
+        "iconUrl": { "type": "string" }
+      },
+      "required": ["type", "name"]
     },
     "Order": {
       "title": "Order",
@@ -67,7 +91,13 @@
         "total": { "type": "number" },
         "status": { "type": "string", "enum": ["Diproses", "Dikemas", "Dikirim", "Selesai"] },
         "address": { "type": "string" },
+        "shippingCost": { "type": "number" },
+        "shippingDiscountAmount": { "type": "number" },
+        "shippingPromoId": { "type": "string" },
+        "totalWeight": { "type": "number" },
         "paymentMethod": { "type": "string" },
+        "paymentProofUrl": { "type": "string" },
+        "approvalStatus": { "type": "string", "enum": ["pending", "approved", "rejected"] },
         "createdAt": { "type": "string", "format": "date-time" },
         "trackingNumber": { "type": "string" }
       },
@@ -102,6 +132,68 @@
         "createdAt": { "type": "string", "format": "date-time" }
       },
       "required": ["userId", "date", "status"]
+    },
+    "PromoCode": {
+      "title": "PromoCode",
+      "description": "Promotional discount code",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "minPurchase": { "type": "number" },
+        "maxDiscount": { "type": "number" },
+        "expiryDate": { "type": "string", "format": "date" },
+        "usageLimit": { "type": "integer" },
+        "usageCount": { "type": "integer" },
+        "isActive": { "type": "boolean" }
+      },
+      "required": ["code", "discountType", "discountValue", "isActive"]
+    },
+    "Chat": {
+      "title": "Chat",
+      "description": "Chat conversation between customer and admin",
+      "type": "object",
+      "properties": {
+        "userId": { "type": "string" },
+        "userName": { "type": "string" },
+        "userPhoto": { "type": "string" },
+        "lastMessage": { "type": "string" },
+        "lastMessageTime": { "type": "string", "format": "date-time" },
+        "unreadAdmin": { "type": "integer" },
+        "unreadUser": { "type": "integer" },
+        "updatedAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["userId", "userName", "lastMessage", "lastMessageTime", "unreadAdmin", "unreadUser", "updatedAt"]
+    },
+    "ChatMessage": {
+      "title": "ChatMessage",
+      "description": "Individual chat message",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "senderId": { "type": "string" },
+        "senderRole": { "type": "string", "enum": ["customer", "admin_sales"] },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["text", "senderId", "senderRole", "createdAt"]
+    },
+    "ShippingPromo": {
+      "title": "ShippingPromo",
+      "description": "Shipping discount or free shipping configuration",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "minPurchase": { "type": "number" },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed", "free"] },
+        "discountValue": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["title", "minPurchase", "discountType", "isActive"]
     }
   },
   "firestore": {
@@ -128,6 +220,26 @@
     "/attendance/{attendanceId}": {
       "schema": "Attendance",
       "description": "Attendance records"
+    },
+    "/promo_codes/{promoId}": {
+      "schema": "PromoCode",
+      "description": "Promotional codes"
+    },
+    "/payment_methods/{methodId}": {
+      "schema": "PaymentMethod",
+      "description": "Available payment methods"
+    },
+    "/chats/{chatId}": {
+      "schema": "Chat",
+      "description": "Chat sessions"
+    },
+    "/chats/{chatId}/messages/{messageId}": {
+      "schema": "ChatMessage",
+      "description": "Messages within a chat session"
+    },
+    "/shipping_promos/{promoId}": {
+      "schema": "ShippingPromo",
+      "description": "Shipping promotions"
     }
   }
 }

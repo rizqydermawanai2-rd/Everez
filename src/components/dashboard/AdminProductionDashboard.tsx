@@ -6,7 +6,7 @@ import {
 import { 
   Search, Bell, Settings, LogOut, LayoutDashboard,
   ClipboardList, Package, Users, Plus, 
-  Clock, CheckCircle2, AlertCircle, Droplets, FlaskConical, Box, Trash2, Globe
+  Clock, CheckCircle2, AlertCircle, Droplets, FlaskConical, Box, Trash2, Globe, MessageSquare
 } from 'lucide-react';
 import { cn, getImageUrl } from '../../lib/utils';
 import { motion, AnimatePresence } from 'motion/react';
@@ -15,6 +15,8 @@ import { collection, query, onSnapshot, doc, updateDoc, deleteDoc, orderBy, wher
 import { Order, User } from '../../types';
 import AttendanceForm from './AttendanceForm';
 import { hasCheckedInToday } from '../../services/attendanceService';
+import NotificationDropdown, { Notification } from './NotificationDropdown';
+import AdminChat from './AdminChat';
 
 const pieData = [
   { name: 'Returning', value: 9 },
@@ -34,8 +36,10 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [hasCheckedIn, setHasCheckedIn] = useState(false);
+  const [hasCheckedIn, setHasCheckedIn] = useState(['ceo', 'vice_ceo', 'super_admin', 'admin_production', 'admin_packing', 'admin_sales'].includes(user.role));
   const [attendanceRecord, setAttendanceRecord] = useState<any>(null);
+  const [notifications, setNotifications] = useState<Notification[]>([]);
+  const [unreadChatCount, setUnreadChatCount] = useState(0);
 
   useEffect(() => {
     const checkAttendance = async () => {
@@ -69,12 +73,71 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
       handleFirestoreError(error, OperationType.LIST, 'products', false);
     });
 
+    const unsubChats = onSnapshot(collection(db, 'chats'), (snapshot) => {
+      let totalUnread = 0;
+      snapshot.docs.forEach(doc => {
+        const data = doc.data();
+        if (data.unreadAdmin) {
+          totalUnread += data.unreadAdmin;
+        }
+      });
+      setUnreadChatCount(totalUnread);
+    }, (error) => {
+      handleFirestoreError(error, OperationType.LIST, 'chats', false);
+    });
+
     return () => {
       unsubOrders();
       unsubInventory();
       unsubProducts();
+      unsubChats();
     };
   }, []);
+
+  useEffect(() => {
+    const newNotifications: Notification[] = [];
+    
+    if (unreadChatCount > 0) {
+      newNotifications.push({
+        id: 'unread-chats',
+        title: 'Pesan Baru',
+        message: `Ada ${unreadChatCount} pesan belum dibaca`,
+        type: 'chat',
+        time: 'Baru saja',
+        read: false,
+        action: () => setActiveTab('chat')
+      });
+    }
+    
+    inventory.forEach(item => {
+      if (item.stock <= 5) {
+        newNotifications.push({
+          id: `stock-${item.id}`,
+          title: 'Stok Menipis',
+          message: `${item.name} tersisa ${item.stock} pcs`,
+          type: 'stock',
+          time: 'Baru saja',
+          read: false,
+          action: () => setActiveTab('inventory')
+        });
+      }
+    });
+
+    const newOrders = orders.filter(o => o.status === 'Produksi');
+    if (newOrders.length > 0) {
+      newNotifications.push({
+        id: 'new-orders',
+        title: 'Antrean Produksi',
+        message: `Ada ${newOrders.length} pesanan perlu diproduksi`,
+        type: 'order',
+        time: 'Baru saja',
+        read: false,
+        action: () => setActiveTab('orders')
+      });
+    }
+
+    setNotifications(newNotifications);
+  }, [inventory, orders]);
 
   const getStockIndicator = (stock: number) => {
     if (stock === 0) return { label: 'Habis', color: 'bg-red-50 text-red-600', dot: 'bg-red-500' };
@@ -143,9 +206,10 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
         <nav className="flex-1 flex flex-row md:flex-col gap-2 md:gap-1 ml-4 md:ml-0 overflow-x-auto md:overflow-visible hide-scrollbar">
           {[
             { id: 'dashboard', icon: LayoutDashboard, label: 'Ringkasan Produksi' },
-            { id: 'orders', icon: ClipboardList, label: 'Antrian Produksi' },
+            { id: 'orders', icon: ClipboardList, label: 'Antrian Produksi', badge: orders.filter(o => o.status === 'Produksi').length },
             { id: 'products', icon: Package, label: 'Katalog Produk' },
             { id: 'inventory', icon: Droplets, label: 'Stok Bahan' },
+            { id: 'chat', icon: MessageSquare, label: 'Live Chat', badge: unreadChatCount > 0 ? unreadChatCount : undefined },
           ].map((item) => (
             <motion.button
               key={item.id}
@@ -153,14 +217,24 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
               whileTap={{ scale: 0.98 }}
               onClick={() => setActiveTab(item.id)}
               className={cn(
-                "flex items-center gap-3 px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
+                "flex items-center justify-between px-4 py-3 rounded-xl text-sm font-medium transition-all shrink-0",
                 activeTab === item.id 
                   ? "bg-zinc-900 text-white shadow-md" 
                   : "text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100/50"
               )}
             >
-              <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
-              <span className="hidden md:inline">{item.label}</span>
+              <div className="flex items-center gap-3">
+                <item.icon className={cn("w-4 h-4", activeTab === item.id ? "text-white" : "text-zinc-400")} />
+                <span className="hidden md:inline">{item.label}</span>
+              </div>
+              {item.badge ? (
+                <span className={cn(
+                  "px-2 py-0.5 text-[10px] font-bold rounded-full",
+                  activeTab === item.id ? "bg-white text-zinc-900" : "bg-red-500 text-white"
+                )}>
+                  {item.badge}
+                </span>
+              ) : null}
             </motion.button>
           ))}
           
@@ -205,10 +279,7 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
                 className="w-full pl-9 pr-4 py-2 bg-white border border-zinc-200/60 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-zinc-900/5 shadow-sm"
               />
             </div>
-            <button className="w-10 h-10 shrink-0 bg-white border border-zinc-200/60 rounded-xl flex items-center justify-center text-zinc-600 hover:bg-zinc-50 shadow-sm relative">
-              <Bell className="w-4 h-4" />
-              <span className="absolute top-2.5 right-2.5 w-2 h-2 bg-red-500 rounded-full border-2 border-white" />
-            </button>
+            <NotificationDropdown notifications={notifications} />
           </div>
         </header>
 
@@ -397,14 +468,14 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
                               {order.status}
                             </span>
                           </div>
-                          <p className="text-sm text-zinc-500">{order.customerName || 'Customer'} • {order.items.length} Items • {new Date(order.createdAt).toLocaleDateString()}</p>
+                          <p className="text-sm text-zinc-500">{order.customerName || 'Customer'} • {order.items.length} Items • {order.totalWeight || 0}g • {new Date(order.createdAt).toLocaleDateString()}</p>
                         </div>
                       </div>
                       
                       <div className="flex flex-wrap gap-3">
                         {order.items.map((item, idx) => (
                           <div key={idx} className="px-3 py-1.5 bg-white border border-zinc-200 rounded-xl text-xs font-medium">
-                            {item.name} ({item.quantity}x)
+                            {item.name} {item.selectedSize && `(${item.selectedSize})`} ({item.quantity}x)
                           </div>
                         ))}
                       </div>
@@ -481,6 +552,7 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
                     <tr>
                       <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Produk</th>
                       <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Kategori</th>
+                      <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Berat</th>
                       <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Stok</th>
                       <th className="px-6 py-4 text-[10px] font-bold uppercase tracking-widest text-zinc-400">Indikator</th>
                     </tr>
@@ -504,6 +576,9 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
                         </td>
                         <td className="px-6 py-4">
                           <span className="px-2 py-1 bg-zinc-100 text-zinc-600 text-[10px] font-bold rounded-md uppercase tracking-wider">{p.category}</span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span className="text-sm font-medium text-zinc-600">{p.weight || 0}g</span>
                         </td>
                         <td className="px-6 py-4">
                           <span className={cn(
@@ -598,6 +673,19 @@ export default function AdminProductionDashboard({ user, onViewWebsite }: AdminP
                 </div>
                 <p className="font-bold text-sm">Tambah Bahan Baru</p>
               </motion.button>
+            </motion.div>
+          )}
+          
+          {activeTab === 'chat' && (
+            <motion.div
+              key="chat"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -20 }}
+              transition={{ duration: 0.3 }}
+              className="h-[calc(100vh-12rem)]"
+            >
+              <AdminChat user={user} />
             </motion.div>
           )}
           </AnimatePresence>

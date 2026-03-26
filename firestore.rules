@@ -27,6 +27,8 @@ service cloud.firestore {
     //   - image: string (optional) - Image URL
     //   - description: string (optional) - Product description (max 2000 chars)
     //   - stock: number (required) - Available quantity (must be >= 0)
+    //   - isBundle: bool (optional) - Whether the product is a bundle
+    //   - bundleItems: list (optional) - List of product IDs in the bundle (max 20)
     //
     // Collection: orders
     // Document ID: Auto-generated
@@ -37,6 +39,8 @@ service cloud.firestore {
     //   - total: number (required) - Total order value
     //   - status: string (required, enum: ["Diproses", "Produksi", "Packing", "Siap Kirim", "Dikirim", "Selesai"])
     //   - address: string (required) - Delivery address
+    //   - shippingCost: number (optional) - Shipping cost in IDR
+    //   - totalWeight: number (optional) - Total weight in grams
     //   - phone: string (required) - Contact phone
     //   - paymentMethod: string (optional)
     //   - createdAt: timestamp (required) - Order timestamp
@@ -48,6 +52,25 @@ service cloud.firestore {
     //   - quantity: number (required, must be positive)
     //   - createdAt: timestamp (required)
     //   - userId: string (required) - UID of the user who made the change
+    //
+    // Collection: promo_codes
+    // Document ID: Auto-generated
+    // Fields:
+    //   - code: string (required) - Promo code (max 50 chars)
+    //   - discountType: string (required, enum: ["percentage", "fixed"])
+    //   - discountValue: number (required, must be positive)
+    //   - isActive: bool (required)
+    //   - createdAt: timestamp (required)
+    //
+    // Collection: shipping_promos
+    // Document ID: Auto-generated
+    // Fields:
+    //   - title: string (required) - Promo title (max 100 chars)
+    //   - minPurchase: number (required) - Minimum purchase amount
+    //   - discountType: string (required, enum: ["percentage", "fixed", "free"])
+    //   - discountValue: number (required) - Discount value
+    //   - isActive: bool (required)
+    //   - createdAt: timestamp (required)
     //
     // ===============================================================
 
@@ -122,6 +145,8 @@ service cloud.firestore {
              data.role in ['customer', 'admin_sales', 'admin_packing', 'admin_production', 'super_admin'] &&
              (!('approved' in data) || data.approved is bool) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
+             (!('district' in data) || (data.district is string && data.district.size() <= 100)) &&
+             (!('postalCode' in data) || (data.postalCode is string && data.postalCode.size() <= 20)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
              (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
              (!('photoURL' in data) || data.photoURL == '' || isValidUrl(data.photoURL)) &&
@@ -135,6 +160,8 @@ service cloud.firestore {
              (!('role' in data) || data.role in ['customer', 'admin_sales', 'admin_packing', 'admin_production', 'super_admin']) &&
              (!('approved' in data) || data.approved is bool) &&
              (!('address' in data) || (data.address is string && data.address.size() <= 500)) &&
+             (!('district' in data) || (data.district is string && data.district.size() <= 100)) &&
+             (!('postalCode' in data) || (data.postalCode is string && data.postalCode.size() <= 20)) &&
              (!('phone' in data) || (data.phone is string && data.phone.size() <= 20)) &&
              (!('city' in data) || (data.city is string && data.city.size() <= 100)) &&
              (!('photoURL' in data) || data.photoURL == '' || isValidUrl(data.photoURL)) &&
@@ -142,13 +169,27 @@ service cloud.firestore {
     }
 
     function isValidProduct(data) {
-      return data.keys().hasAll(['name', 'price', 'category', 'stock']) &&
+      return data.keys().hasAll(['name', 'price', 'category', 'stock', 'weight']) &&
              data.name is string && data.name.size() <= 200 &&
              data.price is number && data.price > 0 &&
              data.category is string && data.category.size() <= 50 &&
              data.stock is number && data.stock >= 0 &&
+             data.weight is number && data.weight >= 0 &&
              (!('image' in data) || data.image == '' || isValidUrl(data.image)) &&
-             (!('description' in data) || (data.description is string && data.description.size() <= 2000));
+             (!('description' in data) || (data.description is string && data.description.size() <= 2000)) &&
+             (!('isBundle' in data) || data.isBundle is bool) &&
+             (!('bundleItems' in data) || (data.bundleItems is list && data.bundleItems.size() <= 20));
+    }
+
+    function isValidPaymentMethod(data) {
+      return data.keys().hasAll(['type', 'name']) &&
+             data.type in ['bank', 'e-wallet', 'qris'] &&
+             data.name is string && data.name.size() <= 100 &&
+             (!('accountNumber' in data) || (data.accountNumber is string && data.accountNumber.size() <= 50)) &&
+             (!('phoneNumber' in data) || (data.phoneNumber is string && data.phoneNumber.size() <= 20)) &&
+             (!('barcodeUrl' in data) || isValidUrl(data.barcodeUrl)) &&
+             (!('qrisBarcodeUrl' in data) || isValidUrl(data.qrisBarcodeUrl)) &&
+             (!('iconUrl' in data) || isValidUrl(data.iconUrl));
     }
 
     function isValidOrder(data) {
@@ -158,7 +199,14 @@ service cloud.firestore {
              data.total is number && data.total >= 0 &&
              data.status in ['Diproses', 'Produksi', 'Packing', 'Siap Kirim', 'Dikirim', 'Selesai'] &&
              data.address is string && data.address.size() <= 500 &&
-             data.createdAt is timestamp;
+             data.createdAt is timestamp &&
+             (!('shippingCost' in data) || data.shippingCost is number) &&
+             (!('shippingDiscountAmount' in data) || data.shippingDiscountAmount is number) &&
+             (!('shippingPromoId' in data) || (data.shippingPromoId == null || data.shippingPromoId is string)) &&
+             (!('totalWeight' in data) || data.totalWeight is number) &&
+             (!('paymentMethod' in data) || data.paymentMethod is string) &&
+             (!('paymentProofUrl' in data) || isValidUrl(data.paymentProofUrl)) &&
+             (!('approvalStatus' in data) || data.approvalStatus in ['pending', 'approved', 'rejected']);
     }
 
     function isValidAttendance(data) {
@@ -173,7 +221,45 @@ service cloud.firestore {
              (!('createdAt' in data) || data.createdAt is timestamp);
     }
 
+    function isValidPromoCode(data) {
+      return data.keys().hasAll(['code', 'discountType', 'discountValue', 'isActive', 'createdAt']) &&
+             data.code is string && data.code.size() <= 50 &&
+             data.discountType in ['percentage', 'fixed'] &&
+             data.discountValue is number && data.discountValue > 0 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp;
+    }
+
+    function isValidShippingPromo(data) {
+      return data.keys().hasAll(['title', 'minPurchase', 'discountType', 'isActive', 'createdAt']) &&
+             data.title is string && data.title.size() <= 100 &&
+             data.minPurchase is number && data.minPurchase >= 0 &&
+             data.discountType in ['percentage', 'fixed', 'free'] &&
+             data.discountValue is number && data.discountValue >= 0 &&
+             data.isActive is bool &&
+             data.createdAt is timestamp;
+    }
+
     // Rules
+    match /promo_codes/{promoCodeId} {
+      allow read: if isAuthenticated();
+      allow create, update: if isSalesAdmin() && isValidPromoCode(request.resource.data);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /shipping_promos/{promoId} {
+      allow read, get, list: if true;
+      allow create, update: if isSalesAdmin() && isValidShippingPromo(request.resource.data);
+      allow delete: if isSuperAdmin();
+    }
+
+    match /payment_methods/{methodId} {
+      allow read: if isAuthenticated();
+      allow list: if isAuthenticated();
+      allow create, update: if isSuperAdmin() && isValidPaymentMethod(request.resource.data);
+      allow delete: if isSuperAdmin();
+    }
+
     match /pending_users/{userId} {
       allow read: if isOwner(userId) || isSuperAdmin();
       allow create: if isAuthenticated() && request.auth.uid == userId && 
@@ -218,8 +304,8 @@ service cloud.firestore {
 
     match /products/{productId} {
       allow read: if true;
-      allow create: if isSalesAdmin() && isValidProduct(request.resource.data);
-      allow update: if isSalesAdmin() && isValidProduct(request.resource.data);
+      allow create: if (isSalesAdmin() || isProductionAdmin()) && isValidProduct(request.resource.data);
+      allow update: if (isSalesAdmin() || isProductionAdmin()) && isValidProduct(request.resource.data);
       allow delete: if isSuperAdmin();
     }
 
@@ -229,7 +315,7 @@ service cloud.firestore {
     }
 
     match /settings/{settingId} {
-      allow read: if isAuthenticated();
+      allow read: if true;
       allow write: if isSuperAdmin();
     }
 
@@ -242,9 +328,11 @@ service cloud.firestore {
                     
       allow update: if isAuthenticated() && isValidOrder(request.resource.data) && (
         // Customer can only update if status is unchanged (e.g. updating address before processing)
-        (request.auth.uid == resource.data.customerId && request.resource.data.status == resource.data.status) ||
+        (request.auth.uid == resource.data.customerId && request.resource.data.status == resource.data.status && request.resource.data.approvalStatus == resource.data.approvalStatus) ||
+        // Customer can upload payment proof
+        (request.auth.uid == resource.data.customerId && request.resource.data.paymentProofUrl != resource.data.paymentProofUrl && request.resource.data.status == resource.data.status && request.resource.data.approvalStatus == resource.data.approvalStatus) ||
         // Role-based status updates
-        (isSalesAdmin() && request.resource.data.status in ['Diproses', 'Produksi', 'Selesai']) ||
+        (isSalesAdmin() && (request.resource.data.status in ['Diproses', 'Produksi', 'Selesai'] || request.resource.data.approvalStatus in ['pending', 'approved', 'rejected'])) ||
         (isProductionAdmin() && request.resource.data.status in ['Produksi', 'Packing']) ||
         (isPackingAdmin() && request.resource.data.status in ['Packing', 'Siap Kirim', 'Dikirim']) ||
         isSuperAdmin()
@@ -265,6 +353,21 @@ service cloud.firestore {
       allow read: if isProductionAdmin() || isSuperAdmin();
       allow create: if isProductionAdmin() || isSuperAdmin();
       allow update, delete: if isSuperAdmin();
+    }
+
+    match /chats/{chatId} {
+      allow read: if isAuthenticated() && (request.auth.uid == chatId || isSalesAdmin() || isSuperAdmin());
+      allow create: if isAuthenticated() && (request.auth.uid == chatId || isSalesAdmin() || isSuperAdmin());
+      allow update: if isAuthenticated() && (request.auth.uid == chatId || isSalesAdmin() || isSuperAdmin());
+      allow delete: if isSuperAdmin();
+      
+      match /messages/{messageId} {
+        allow read: if isAuthenticated() && (request.auth.uid == chatId || isSalesAdmin() || isSuperAdmin());
+        allow create: if isAuthenticated() && (request.auth.uid == chatId || isSalesAdmin() || isSuperAdmin()) &&
+                      request.resource.data.keys().hasAll(['text', 'senderId', 'senderRole', 'createdAt']) &&
+                      request.resource.data.senderId == request.auth.uid;
+        allow update, delete: if false;
+      }
     }
   }
 }
